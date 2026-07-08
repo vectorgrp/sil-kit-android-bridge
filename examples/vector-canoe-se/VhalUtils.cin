@@ -1,0 +1,43 @@
+/*@!Encoding:1252*/
+
+// Keep in sync with VhalProperties.vcdl
+variables 
+{
+    int maxWait = 100; //milliseconds
+}
+int VhalSetProperty(char name[], long value)
+{
+    callcontext vhalProperties.SetProperty cc;
+    cc = vhalProperties.SetProperty.CallAsync(name, value);
+    return testWaitForAnswer(cc, maxWait);
+}
+int VhalGetProperty(char name[], long& value)
+{
+    int status = -1;
+    callcontext vhalProperties.GetProperty cc;
+    cc = vhalProperties.GetProperty.CallAsync(name);
+    status = testWaitForAnswer(cc, maxWait);
+    if(status > 0) {
+        value = cc.Result;
+    }
+    return status;
+}
+
+int VhalSetPropertyFloat(char name[], float value)
+{
+    callcontext vhalProperties.SetPropertyFloat cc;
+    cc = vhalProperties.SetPropertyFloat.CallAsync(name, value);
+    return testWaitForAnswer(cc, maxWait);
+}
+
+int VhalGetPropertyFloat(char name[], float& value)
+{
+    int status = -1;
+    callcontext vhalProperties.GetPropertyFloat cc;
+    cc = vhalProperties.GetPropertyFloat.CallAsync(name);
+    status = testWaitForAnswer(cc, maxWait);
+    if(status > 0) {
+        value = cc.Result;
+    }
+    return status;
+}

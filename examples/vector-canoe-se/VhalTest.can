@@ -1,0 +1,61 @@
+/*@!Encoding:1252*/
+includes 
+{
+  #include "VhalUtils.cin"
+}
+
+export testcase CheckEvBatteryProperties()
+{
+    int status = 0;
+    long propertyValue = -1;
+    float propertyValueFloat = -1.0;
+
+    Write("Setting initial default values for properties");
+    status = SetProperty("EV_CHARGE_PORT_CONNECTED", 0);
+    status = SetPropertyFloat("EV_CURRENT_BATTERY_CAPACITY", 10); //kWh
+    status = SetPropertyFloat("EV_BATTERY_LEVEL", 0.0);
+    status = SetPropertyFloat("RANGE_REMAINING", 0);
+    TestWaitForTimeout(1000);
+
+    Write("Setting EV_CHARGE_PORT_CONNECTED to 1 (connected)");
+    status = SetProperty("EV_CHARGE_PORT_CONNECTED", 1);
+    status = GetProperty("EV_CHARGE_PORT_CONNECTED", propertyValue);
+
+    if (propertyValue == 1) {
+        testStepPass("1.0", "EV_CHARGE_PORT_CONNECTED is 0 as expected");
+    } else {
+        testStepFail("1.0", "EV_CHARGE_PORT_CONNECTED expected 1, got %d", propertyValue);
+    }
+
+    Write("Setting EV_BATTERY_LEVEL to 1000.0");
+    status = SetPropertyFloat("EV_BATTERY_LEVEL", 10000.0);
+    TestWaitForTimeout(1000);
+
+    Write("Setting EV_BATTERY_LEVEL to 3000.0");
+    status = SetPropertyFloat("EV_BATTERY_LEVEL", 30000.0);
+    TestWaitForTimeout(1000);
+
+    Write("Setting EV_BATTERY_LEVEL to 8000.0");
+    status = SetPropertyFloat("EV_BATTERY_LEVEL", 80000.0);
+    TestWaitForTimeout(1000);
+
+    Write("Setting EV_BATTERY_LEVEL to 10000.0");
+    status = SetPropertyFloat("EV_BATTERY_LEVEL", 100000.0);
+    TestWaitForTimeout(1000);
+
+    status = GetPropertyFloat("EV_BATTERY_LEVEL", propertyValueFloat);
+    if (propertyValueFloat == 100000.0 && status > 0) {
+        testStepPass("1.0", "EV_BATTERY_LEVEL is 100000.0 as expected");
+    } else {
+        Write("EV_BATTERY_LEVEL is %f, expected 100000.0, status=%d", propertyValueFloat, status);
+        testStepFail("1.0", "EV_BATTERY_LEVEL expected 100000.0, got %f", propertyValueFloat);
+    }
+
+    //GetPropertyFloat("NON_EXISTING", propertyValueFloat);
+
+    testWaitForTimeout(3000);
+    status = SetProperty("EV_CHARGE_PORT_CONNECTED", 0);
+    status = SetPropertyFloat("RANGE_REMAINING", 1337);
+
+    testStepPass("1.0", "Test completed");
+}

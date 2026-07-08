@@ -1,0 +1,74 @@
+# SPDX-FileCopyrightText: 2026 Vector Informatik GmbH
+# SPDX-License-Identifier: MIT
+#
+# Tests and test utilities. Production code lives in ../source; test targets add
+# that directory to their include path. The global targets proto_lib /
+# SilKit::SilKit / spdlog::spdlog / GTest::* are defined before this directory is
+# added (see the root CMakeLists.txt order: gtest.cmake, add_subdirectory(source),
+# add_subdirectory(test)).
+
+include(GoogleTest)  # provides gtest_discover_tests
+
+set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/source)
+
+# ---- Unit tests (gtest, registered with CTest via gtest_discover_tests) ----
+
+# Test_VhalMockClient: exercises the in-memory mock VHAL client. No SIL Kit /
+# network dependency - pure unit test.
+add_executable(Test_VhalMockClient
+    Test_VhalMockClient.cpp
+)
+target_link_libraries(Test_VhalMockClient
+    PRIVATE
+        GTest::gtest_main
+        spdlog::spdlog
+)
+target_include_directories(Test_VhalMockClient PRIVATE ${SOURCE_DIR})
+gtest_discover_tests(Test_VhalMockClient)
+
+# Test_VhalSilKitSerdes: guards the CANoe-compatible binary wire format produced
+# by VhalSilKitSerdes.hpp. Uses only the header-only SilKit SerDes utilities.
+add_executable(Test_VhalSilKitSerdes
+    Test_VhalSilKitSerdes.cpp
+)
+target_link_libraries(Test_VhalSilKitSerdes
+    PRIVATE
+        GTest::gtest_main
+        SilKit::SilKit
+        spdlog::spdlog
+)
+target_include_directories(Test_VhalSilKitSerdes PRIVATE ${SOURCE_DIR})
+gtest_discover_tests(Test_VhalSilKitSerdes)
+
+# ---- Integration tests (self-contained: in-process registry via the Vendor API) ----
+
+# ITest_VhalSilKitAdapter: drives the real VhalSilKitAdapter (with a VhalMockClient)
+# from a faked CANoe consumer over a live, in-process SIL Kit registry. Uses the
+# mock client, so no gRPC/proto dependency.
+add_executable(ITest_VhalSilKitAdapter
+    ITest_VhalSilKitAdapter.cpp
+)
+target_link_libraries(ITest_VhalSilKitAdapter
+    PRIVATE
+        GTest::gtest_main
+        SilKit::SilKit
+        spdlog::spdlog
+)
+target_include_directories(ITest_VhalSilKitAdapter PRIVATE ${SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+gtest_discover_tests(ITest_VhalSilKitAdapter)
+
+# ---- Manual developer tools (built, but NOT registered with CTest) ----
+# grpc-client-test: connects to a real VHAL gRPC server (pass the socket/URI as
+# argv[1]) and exercises VhalGrpcClient. Run by hand; intentionally has no
+# add_test/gtest_discover_tests.
+add_executable(grpc-client-test
+    grpc-client-test.cpp
+    ${SOURCE_DIR}/VhalGrpcClient.cpp
+)
+target_link_libraries(grpc-client-test
+    PRIVATE
+        proto_lib
+        SilKit::SilKit
+        spdlog::spdlog
+)
+target_include_directories(grpc-client-test PRIVATE ${SOURCE_DIR})

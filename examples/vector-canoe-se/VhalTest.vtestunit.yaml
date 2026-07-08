@@ -1,0 +1,9 @@
+version: 2.0.0
+test-unit-information:
+  version: v1.0
+  caption: VhalTest
+  description: Test for VhalProperties
+
+test-unit-implementation:
+  - source-file-path: VhalTest.can
+  - source-file-path: VhalTest.vtesttree.yaml

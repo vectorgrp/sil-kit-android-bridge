@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: 2026 Vector Informatik GmbH
+# SPDX-License-Identifier: MIT
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  # Update to the desired SilKit release before running.
+  # Available releases: https://github.com/vectorgrp/sil-kit/releases
+  SILKIT_VERSION: "5.0.6"
+  SILKIT_BASE_URL: "https://github.com/vectorgrp/sil-kit/releases/download/v${{ env.SILKIT_VERSION }}/"
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build \
+            libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
+            libgtest-dev libgmock-dev \
+            dpkg-dev
+
+      - name: Install SilKit
+        run: |
+          for pkg in \
+            silkit-utils_${{ env.SILKIT_VERSION }}-1ubuntu1_amd64.deb \
+            libsilkit-dev_${{ env.SILKIT_VERSION }}-1ubuntu1_amd64.deb \
+            libsilkit5_${{ env.SILKIT_VERSION }}-1ubuntu1_amd64.deb \
+          ; do \
+            wget ${{ env.SILKIT_BASE_URL }}${pkg} -O /tmp/${pkg} && \
+            sudo dpkg -i /tmp/${pkg} && \
+            rm /tmp/${pkg}; \
+          done
+
+      - name: Configure
+        run: cmake --preset relwithdebinfo
+
+      - name: Build
+        run: cmake --build --preset relwithdebinfo
+
+      - name: Test
+        run: ctest --preset relwithdebinfo --output-on-failure
+
+      - name: Package
+        run: cmake --build --preset relwithdebinfo --target package
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ github.sha }}
+          path: |
+            _build/Linux/relwithdebinfo/*.zip
+            _build/Linux/relwithdebinfo/*.deb
