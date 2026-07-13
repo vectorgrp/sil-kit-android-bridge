@@ -1,6 +1,7 @@
 # General
 If you do not know the exact answer regarding protocols and specifications be upfront and say so instead of fabricating an answer.
 Do not use non-ASCII characters in code or comments.
+Never commit to git without permission.
 
 ## SIL Kit conventions
 See @AGENTS-sil-kit.md for the SIL Kit (FOSS) repository layout and stability guarantees.

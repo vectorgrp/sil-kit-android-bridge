@@ -5,9 +5,10 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
-  workflow_dispatch: 
+  workflow_dispatch:
 
 env:
   SILKIT_VERSION: "5.0.6"
@@ -15,6 +16,8 @@ env:
 jobs:
   build-and-test:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -32,9 +35,9 @@ jobs:
         run: |
           base_url="https://github.com/vectorgrp/sil-kit/releases/download/v${SILKIT_VERSION}/"
           for pkg in \
-            silkit-utils_${{ env.SILKIT_VERSION }}-1ubuntu1_amd64.deb \
-            libsilkit-dev_${{ env.SILKIT_VERSION }}-1ubuntu1_amd64.deb \
-            libsilkit5_${{ env.SILKIT_VERSION }}-1ubuntu1_amd64.deb \
+            silkit-utils_${SILKIT_VERSION}-1ubuntu1_amd64.deb \
+            libsilkit-dev_${SILKIT_VERSION}-1ubuntu1_amd64.deb \
+            libsilkit5_${SILKIT_VERSION}-1ubuntu1_amd64.deb \
           ; do \
             wget "${base_url}${pkg}" -O /tmp/${pkg} && \
             sudo dpkg -i /tmp/${pkg} && \
@@ -60,3 +63,14 @@ jobs:
           path: |
             _build/Linux/relwithdebinfo/*.zip
             _build/Linux/relwithdebinfo/*.deb
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            _build/Linux/relwithdebinfo/*.deb \
+            _build/Linux/relwithdebinfo/*.zip \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
