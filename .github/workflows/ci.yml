@@ -7,12 +7,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch: 
 
 env:
-  # Update to the desired SilKit release before running.
-  # Available releases: https://github.com/vectorgrp/sil-kit/releases
   SILKIT_VERSION: "5.0.6"
-  SILKIT_BASE_URL: "https://github.com/vectorgrp/sil-kit/releases/download/v${{ env.SILKIT_VERSION }}/"
 
 jobs:
   build-and-test:
@@ -32,12 +30,13 @@ jobs:
 
       - name: Install SilKit
         run: |
+          base_url="https://github.com/vectorgrp/sil-kit/releases/download/v${SILKIT_VERSION}/"
           for pkg in \
             silkit-utils_${{ env.SILKIT_VERSION }}-1ubuntu1_amd64.deb \
             libsilkit-dev_${{ env.SILKIT_VERSION }}-1ubuntu1_amd64.deb \
             libsilkit5_${{ env.SILKIT_VERSION }}-1ubuntu1_amd64.deb \
           ; do \
-            wget ${{ env.SILKIT_BASE_URL }}${pkg} -O /tmp/${pkg} && \
+            wget "${base_url}${pkg}" -O /tmp/${pkg} && \
             sudo dpkg -i /tmp/${pkg} && \
             rm /tmp/${pkg}; \
           done
