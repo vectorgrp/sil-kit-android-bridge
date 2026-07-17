@@ -60,7 +60,15 @@ sil-kit-registry --listen-uri localhost:8501&
 ./_build/Linux/debug/sil-kit-android-bridge --vhal-uri unix:///tmp/vsock_3_1002/vm.vsock_9300 --silkit-uri localhost:8501
 ```
 This will start a local registry running on port 8501  and the android bridge.
-To send test data, one needs to implement the RPC Client-side (TODO).
+To send test data, use the test executable `silkit-client` to connect to the bridge:
+```sh
+$ ./silkit-client
+Connecting participant 'silkit-client' to registry 'silkit://localhost:8500' (Namespace=VhalSilkit, Instance=vhalProperties, VirtualNetwork=Default)
+No assignments on the command line; reading PROPERTY=value lines from stdin (Ctrl+D / Ctrl+Z to end).
+RANGE_REMAINING=1235
+SET  RANGE_REMAINING = 1235 (float) -> Success
+GET  RANGE_REMAINING = 1235 (float)
+```
 
 ## Testing
 
