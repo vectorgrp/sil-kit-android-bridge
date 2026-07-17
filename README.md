@@ -42,15 +42,24 @@ sil-kit-android-bridge [OPTIONS]
   -h, --help                   Print this help
 ```
 
-### Quick start with mock VHAL
+### Quick start
 
+Ensure that a registry is running and/or reachable for the sil-kit-android-bridge.
+Refer to the [SIL Kit documentation for details.](https://vectorgrp.github.io/sil-kit-docs/for-users/users.html#quick-start)
+Determine the URI of the VHAL proxy process, e.g., here it is running with a unix domain socket at `unix:///tmp/vsock_3_1002/vm.vsock_9300`:
+```sh
+$ pgrep -al vhal
+1234 /var/tmp/cvd/.../artifacts/host_tools/bin/vhal_proxy_server /var/tmp/cvd/.../artifacts/host_tools/etc/automotive/vhalconfig ...:9300 unix:///tmp/vsock_3_1002/vm.vsock_9300
+```
 ```sh
 # Start a SIL Kit registry (from your SIL Kit installation)
-sil-kit-registry &
+sil-kit-registry --listen-uri localhost:8501&
 
-# Run the adapter in mock mode
-./_build/Linux/debug/sil-kit-android-bridge --mock
+# Run the adapter against the VHAL proxy 
+./_build/Linux/debug/sil-kit-android-bridge --vhal-uri unix:///tmp/vsock_3_1002/vm.vsock_9300 --silkit-uri localhost:8501
 ```
+This will start a local registry running on port 8501  and the android bridge.
+To send test data, one needs to implement the RPC Client-side (TODO).
 
 ## Testing
 
