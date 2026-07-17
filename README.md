@@ -12,6 +12,7 @@ test benches.
 |------------|----------------|
 | **SIL Kit** | `sudo dpkg -i libsilkit5_<version>-1ubuntu1_amd64.deb libsilkit-dev_<version>-1ubuntu1_amd64.deb silkit-utils_<version>-1ubuntu1_amd64.deb` from [GitHub Releases](https://github.com/vectorgrp/sil-kit/releases) |
 | **gRPC + Protobuf** | `sudo apt install libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc` |
+| **GTest + GMock** | `sudo apt install libgtest-dev libgmock-dev` |
 | **CMake** | >= 3.21 |
 
 ## Build
