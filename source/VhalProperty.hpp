@@ -337,7 +337,7 @@ enum class VehicleProperty : int32_t {
     LOW_SPEED_AUTOMATIC_EMERGENCY_BRAKING_STATE = 289411110,
 };
 
-inline std::string VehicleProperty_GetNameById(int32_t value) {
+inline const std::unordered_map<int32_t, std::string>& VehicleProperty_IdToNameMap() {
     static const std::unordered_map<int32_t, std::string> kPropertyNames = {
         {0, "INVALID"},
         {286261504, "INFO_VIN"},
@@ -621,6 +621,11 @@ inline std::string VehicleProperty_GetNameById(int32_t value) {
         {287313957, "LOW_SPEED_AUTOMATIC_EMERGENCY_BRAKING_ENABLED"},
         {289411110, "LOW_SPEED_AUTOMATIC_EMERGENCY_BRAKING_STATE"},
     };
+    return kPropertyNames;
+}
+
+inline std::string VehicleProperty_GetNameById(int32_t value) {
+    const auto& kPropertyNames = VehicleProperty_IdToNameMap();
     auto it = kPropertyNames.find(value);
     return (it != kPropertyNames.end()) ? it->second : std::string("UNKNOWN_" + std::to_string(value));
 }
