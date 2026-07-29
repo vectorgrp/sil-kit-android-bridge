@@ -72,3 +72,23 @@ target_link_libraries(grpc-client-test
         spdlog::spdlog
 )
 target_include_directories(grpc-client-test PRIVATE ${SOURCE_DIR})
+
+# silkit-client: connects to the sil-kit-android-bridge (at registry URI passed in as
+# argv[1]) and exercises the SIL Kit RPC side of the bridge:.
+# add_test/gtest_discover_tests.
+add_executable(silkit-client silkit-client.cpp)
+target_link_libraries(silkit-client
+    PRIVATE
+        SilKit::SilKit
+        spdlog::spdlog
+)
+target_include_directories(silkit-client PRIVATE ${SOURCE_DIR})
+# Ship the client tool next to the bridge: same top-level output dir, and install
+# it alongside sil-kit-android-bridge (see source/CMakeLists.txt).
+set_target_properties(silkit-client PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+include(GNUInstallDirs)
+install(TARGETS silkit-client
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
