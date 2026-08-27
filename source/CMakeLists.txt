@@ -60,12 +60,12 @@ set(PROTO_SRCS
 
 add_custom_command(
     OUTPUT ${PROTO_SRCS}
-    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+    COMMAND $<TARGET_FILE:protobuf::protoc>
         --proto_path=${ANDROID_VHAL_DIR}/proto
         --proto_path=${ANDROID_VHAL_DIR}/grpc/proto
         --cpp_out=${PROTO_BINARY_DIR}
         ${PROTO_FILES_ABS}
-    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+    COMMAND $<TARGET_FILE:protobuf::protoc>
         --proto_path=${ANDROID_VHAL_DIR}/proto
         --proto_path=${ANDROID_VHAL_DIR}/grpc/proto
         --cpp_out=${PROTO_BINARY_DIR}
@@ -88,6 +88,13 @@ target_link_libraries(proto_lib
 )
 target_include_directories(proto_lib PUBLIC ${PROTO_BINARY_DIR})
 
+# The generated VHAL translation units are large: MSVC needs more object file
+# sections than the default, and /utf-8 keeps the source and execution charsets
+# consistent for the generated string literals.
+if(MSVC)
+    target_compile_options(proto_lib PRIVATE /bigobj /utf-8)
+endif()
+
 set(SPDLOG_BUILD_SHARED OFF)
 add_subdirectory(third_party/spdlog)
 
@@ -107,11 +114,20 @@ target_link_libraries(${EXE_NAME}
         spdlog::spdlog
 )
 target_include_directories(${EXE_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+sk_copy_runtime_dlls(${EXE_NAME})
 
 include(GNUInstallDirs)
 install(TARGETS ${EXE_NAME}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+# The Debian package resolves libsilkit through dpkg-shlibdeps; Windows has no
+# such mechanism, so SilKit.dll is shipped inside the archive.
+if(WIN32)
+    install(IMPORTED_RUNTIME_ARTIFACTS SilKit::SilKit
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif()
 install(FILES ${CMAKE_SOURCE_DIR}/README.md
     DESTINATION ${CMAKE_INSTALL_DOCDIR}
 )

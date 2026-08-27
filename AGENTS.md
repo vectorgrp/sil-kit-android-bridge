@@ -2,6 +2,13 @@
 If you do not know the exact answer regarding protocols and specifications be upfront and say so instead of fabricating an answer.
 Do not use non-ASCII characters in code or comments.
 Never commit to git without permission.
+Never stage changes, unless asked.
+
+# planning
+keep plans in `design/` folder in the current project.
+plans have a number, e.g. 001-, prefix in file.
+derived plans have additional numbers, e.g. 001.01.
+plans have a name that can be mapped to a feature branch.
 
 ## SIL Kit conventions
 See @AGENTS-sil-kit.md for the SIL Kit (FOSS) repository layout and stability guarantees.
@@ -28,5 +35,15 @@ See @AGENTS-sil-kit.md for the SIL Kit (FOSS) repository layout and stability gu
 - do not add gratuitous interfaces, however allow for testing and dependency injection.
 - use trailing return type functions (e.g. auto foo() -> returnValue)
 
-## building 
+## building
 use cmake preset debug
+
+Linux resolves gRPC, Protobuf and GoogleTest from apt. Windows resolves them
+with Conan 2: `cmake/fetch_conan.cmake` provisions a Conan 2 client into `.venv`
+using `uv` and runs `conan install` at configure time, so the Conan 1 client that
+corporate machines have on PATH is never used. Build from a Visual Studio
+developer command prompt, and add `-DCONAN_SETTINGS=compiler.version=194` when
+Visual Studio detects as msvc 195 - ConanCenter only publishes binaries for 194.
+See the Prerequisites section in README.md. On Windows prefer the `relwithdebinfo`
+preset: ConanCenter publishes Release binaries only, so `debug` builds every
+dependency from source.

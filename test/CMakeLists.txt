@@ -24,6 +24,7 @@ target_link_libraries(Test_VhalMockClient
         spdlog::spdlog
 )
 target_include_directories(Test_VhalMockClient PRIVATE ${SOURCE_DIR})
+sk_copy_runtime_dlls(Test_VhalMockClient)
 gtest_discover_tests(Test_VhalMockClient)
 
 # Test_VhalSilKitSerdes: guards the CANoe-compatible binary wire format produced
@@ -38,6 +39,7 @@ target_link_libraries(Test_VhalSilKitSerdes
         spdlog::spdlog
 )
 target_include_directories(Test_VhalSilKitSerdes PRIVATE ${SOURCE_DIR})
+sk_copy_runtime_dlls(Test_VhalSilKitSerdes)
 gtest_discover_tests(Test_VhalSilKitSerdes)
 
 # ---- Integration tests (self-contained: in-process registry via the Vendor API) ----
@@ -55,6 +57,7 @@ target_link_libraries(ITest_VhalSilKitAdapter
         spdlog::spdlog
 )
 target_include_directories(ITest_VhalSilKitAdapter PRIVATE ${SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+sk_copy_runtime_dlls(ITest_VhalSilKitAdapter)
 gtest_discover_tests(ITest_VhalSilKitAdapter)
 
 # ---- Manual developer tools (built, but NOT registered with CTest) ----
@@ -72,6 +75,7 @@ target_link_libraries(grpc-client-test
         spdlog::spdlog
 )
 target_include_directories(grpc-client-test PRIVATE ${SOURCE_DIR})
+sk_copy_runtime_dlls(grpc-client-test)
 
 # silkit-client: connects to the sil-kit-android-bridge (at registry URI passed in as
 # argv[1]) and exercises the SIL Kit RPC side of the bridge:.
@@ -88,6 +92,7 @@ target_include_directories(silkit-client PRIVATE ${SOURCE_DIR})
 set_target_properties(silkit-client PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+sk_copy_runtime_dlls(silkit-client)
 include(GNUInstallDirs)
 install(TARGETS silkit-client
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

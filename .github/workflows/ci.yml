@@ -14,10 +14,8 @@ env:
   SILKIT_VERSION: "5.0.6"
 
 jobs:
-  build-and-test:
+  build-linux:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -59,18 +57,87 @@ jobs:
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
-          name: packages-${{ github.sha }}
+          name: packages-Linux
           path: |
             _build/Linux/relwithdebinfo/*.zip
             _build/Linux/relwithdebinfo/*.deb
 
+  build-windows:
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # uv provisions the Conan 2 client into .venv (see cmake/fetch_conan.cmake);
+      # ninja is the generator used by the CMake presets.
+      - name: Install build tools
+        run: python -m pip install --upgrade uv ninja
+
+      # gRPC and its dependencies are built from source on a cold cache, which is
+      # slow; keep the Conan 2 package cache between runs.
+      - name: Cache Conan packages
+        uses: actions/cache@v4
+        with:
+          path: ~\.conan2\p
+          key: conan2-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan2-${{ runner.os }}-
+
+      - name: Install SilKit
+        shell: pwsh
+        run: |
+          $zip = "SilKit-$env:SILKIT_VERSION-Win-x86_64-VS2019.zip"
+          $url = "https://github.com/vectorgrp/sil-kit/releases/download/v$env:SILKIT_VERSION/$zip"
+          $dest = Join-Path $env:RUNNER_TEMP "silkit"
+          Invoke-WebRequest -Uri $url -OutFile (Join-Path $env:RUNNER_TEMP $zip)
+          Expand-Archive -Path (Join-Path $env:RUNNER_TEMP $zip) -DestinationPath $dest -Force
+          # The layout inside the archive is not part of any stability guarantee,
+          # so locate the package configuration instead of hardcoding a path.
+          $cfg = Get-ChildItem -Path $dest -Recurse -Filter SilKitConfig.cmake |
+                 Select-Object -First 1
+          if (-not $cfg) { throw "SilKitConfig.cmake not found under $dest" }
+          Add-Content -Path $env:GITHUB_ENV -Value "SilKit_DIR=$($cfg.Directory.FullName)"
+
+      # One cmd step so the environment set up by vcvars64.bat survives across the
+      # cmake invocations. && chaining is required: shell cmd only reports the exit
+      # code of the last command.
+      - name: Configure, build, test and package
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VSPATH=%%i
+          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cmake --preset relwithdebinfo -DSilKit_DIR="%SilKit_DIR%" && ^
+          cmake --build --preset relwithdebinfo && ^
+          ctest --preset relwithdebinfo --output-on-failure && ^
+          cmake --build --preset relwithdebinfo --target package
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-Windows
+          path: _build/Windows/relwithdebinfo/*.zip
+
+  release:
+    needs: [build-linux, build-windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: dist
+          merge-multiple: true
+
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            _build/Linux/relwithdebinfo/*.deb \
-            _build/Linux/relwithdebinfo/*.zip \
+            dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes
