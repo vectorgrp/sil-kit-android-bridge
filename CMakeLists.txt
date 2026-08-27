@@ -16,4 +16,5 @@ include(cmake/gtest.cmake)  # must follow gRPC.cmake (shares the Conan install o
 enable_testing()
 add_subdirectory(source)
 add_subdirectory(test)
+include(cmake/Notices.cmake)
 include(cmake/Packaging.cmake)

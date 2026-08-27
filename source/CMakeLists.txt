@@ -128,9 +128,8 @@ if(WIN32)
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
 endif()
-install(FILES ${CMAKE_SOURCE_DIR}/README.md
-    DESTINATION ${CMAKE_INSTALL_DOCDIR}
-)
+# README.md, LICENSE.md, THIRD_PARTY_NOTICES.md and the third-party license
+# texts are installed by cmake/Notices.cmake.
 
 # Tests and test utilities live in the top-level test/ directory
 # (added via add_subdirectory(test) from the root CMakeLists.txt).

@@ -36,14 +36,22 @@ See @AGENTS-sil-kit.md for the SIL Kit (FOSS) repository layout and stability gu
 - use trailing return type functions (e.g. auto foo() -> returnValue)
 
 ## building
-use cmake preset debug
+use cmake preset `debug` on Linux, `relwithdebinfo` on Windows. The `debug`
+preset is disabled on Windows: ConanCenter publishes no Debug binaries, so a
+Debug configure would compile the whole dependency tree from source.
 
 Linux resolves gRPC, Protobuf and GoogleTest from apt. Windows resolves them
-with Conan 2: `cmake/fetch_conan.cmake` provisions a Conan 2 client into `.venv`
-using `uv` and runs `conan install` at configure time, so the Conan 1 client that
-corporate machines have on PATH is never used. Build from a Visual Studio
-developer command prompt, and add `-DCONAN_SETTINGS=compiler.version=194` when
-Visual Studio detects as msvc 195 - ConanCenter only publishes binaries for 194.
-See the Prerequisites section in README.md. On Windows prefer the `relwithdebinfo`
-preset: ConanCenter publishes Release binaries only, so `debug` builds every
-dependency from source.
+with Conan 2: `cmake/fetch_conan.cmake` provisions a Conan 2 client into
+`_build/conan-venv` using `uv` and runs `conan install` at configure time, so the
+Conan 1 client that corporate machines have on PATH is never used. Build from a
+Visual Studio developer command prompt. The Conan home is `_build/conan2`, so a
+build writes nothing outside the repository; it carries
+`cmake/conan/compatibility.py`, which lets a newer MSVC reuse the msvc 194
+binaries ConanCenter publishes - do not pin `compiler.version` or
+`compiler.cppstd` in a profile to achieve that, both make things worse. See the
+Prerequisites section in README.md.
+
+Dependencies are linked statically, so their license texts have to be
+redistributed: `cmake/conan/licenses_deployer.py` collects them from the Conan
+packages and `cmake/Notices.cmake` installs them alongside the vendored ones.
+Adding or removing a dependency means checking `THIRD_PARTY_NOTICES.md`.
