@@ -14,11 +14,8 @@ env:
   SILKIT_VERSION: "5.0.6"
 
 jobs:
-  # The release assets are named by CPack from the version in cmake/Version.cmake,
-  # while the release itself is named after the pushed tag. Nothing else compares
-  # the two, so tagging v0.2.0 with the tree still at 0.1.0 would publish a 0.2.0
-  # release full of 0.1.0 archives. Its own job so the mismatch is reported in
-  # seconds instead of after both platforms have built.
+  # CPack names the assets from cmake/Version.cmake, the release from the tag.
+  # Its own job so a mismatch is reported before both platforms build.
   version-check:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-22.04
@@ -161,9 +158,19 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            dist/* \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes
+          # The release can already exist: publishing one in the web UI creates
+          # the tag that starts this workflow. New ones are left as drafts so the
+          # archives are attached before anyone publishes - under immutable
+          # releases publishing seals the assets and reserves the tag forever.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" \
+              --draft \
+              --generate-notes
+          fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url

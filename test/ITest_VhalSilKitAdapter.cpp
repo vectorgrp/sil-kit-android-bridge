@@ -5,12 +5,8 @@
 // drives the real VhalSilKitAdapter (backed by a VhalMockClient) over a live,
 // in-process SIL Kit registry. This verifies the GetProperty/SetProperty
 // round-trips through the bridge and locks in the wire/label/function-name
-// contract that CANoe relies on.
-//
-// SetUp() ends with a discovery barrier, so every test below runs against a
-// settled system and asserts on logic alone. Nothing here waits out a duration
-// or treats a slow CI runner as a failure; see "Timing discipline" in
-// SkParticipant.hpp.
+// contract that CANoe relies on. SetUp() ends with a discovery barrier, so every
+// test below runs against a settled system and asserts on logic alone.
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -106,17 +102,13 @@ protected:
                                                MakeClientSpec("GetPropertyFloat"));
         setFloatClient_ = canoe_->AddRpcClient("Default::VhalSilkit::vhalProperties.SetPropertyFloat",
                                                MakeClientSpec("SetPropertyFloat"));
-        // Created here, in the same discovery round as the well-named clients, so
-        // that WrongFunctionNameDoesNotMatch compares like with like. Distinct
-        // canonical (controller) name - it must be unique per participant and does
-        // not affect matching; only the RpcSpec function name does.
+        // Same discovery round as the well-named clients, so that
+        // WrongFunctionNameDoesNotMatch compares like with like.
         badClient_ = canoe_->AddRpcClient("wrong-function-name-probe",
                                           MakeClientSpec("VhalSilkit::vhalProperties.GetProperty"));
 
-        // Discovery barrier. Everything below this point is a settled system, so
-        // no individual test needs a retry or a duration of its own: a test that
-        // sees ServerNotReachable is seeing a contract violation, not a slow
-        // runner. Both waits are on logical conditions (see SkParticipant.hpp).
+        // Past this barrier, ServerNotReachable is a contract violation rather
+        // than a slow runner.
         ASSERT_TRUE(canoe_->WaitUntilConnected("VhalBridge"))
             << "the adapter participant never joined the session";
         const auto probe = canoe_->AwaitServerReachable(getClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
@@ -180,13 +172,9 @@ TEST_F(AdapterRpcTest, UnknownPropertyReturnsZero)
 // matching key. A client that uses the full DO path as the function name (the
 // old, broken behavior) must NOT match the adapter's server.
 //
-// "Does not match" cannot be proven by waiting - absence of a match is always
-// indistinguishable from a match that has not happened yet. It is proven by
-// ordering instead: SetUp() has already established that this participant
-// matched a correctly specified client to the adapter, and the adapter creates
-// all four of its RPC servers in Init(), before its lifecycle starts. So the
-// adapter's complete server set is known here, badClient_ was announced in that
-// same round, and its being unmatched is a conclusion rather than a deadline.
+// Proven by ordering, not by waiting: SetUp() established that a correctly
+// specified client matched, and the adapter creates all four servers in Init(),
+// so its complete server set is known here.
 TEST_F(AdapterRpcTest, WrongFunctionNameDoesNotMatch)
 {
     const auto result = canoe_->Call(badClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
