@@ -196,7 +196,7 @@ Do not publish a release by hand before CI has attached the archives. If
 [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
 are enabled, publishing seals the release: its assets can no longer be changed,
 and its tag name is reserved permanently - deleting the release does not give the
-name back, so the version has to be skipped. That is why `0.2.0` is missing.
+name back, so the version has to be skipped.
 
 Creating the release in the UI is still handled - the job uploads to an existing
 draft or release rather than failing - but pushing the tag is the reliable
