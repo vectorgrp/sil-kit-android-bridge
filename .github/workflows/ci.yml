@@ -14,13 +14,35 @@ env:
   SILKIT_VERSION: "5.0.6"
 
 jobs:
-  build-and-test:
+  # The release assets are named by CPack from the version in cmake/Version.cmake,
+  # while the release itself is named after the pushed tag. Nothing else compares
+  # the two, so tagging v0.2.0 with the tree still at 0.1.0 would publish a 0.2.0
+  # release full of 0.1.0 archives. Its own job so the mismatch is reported in
+  # seconds instead of after both platforms have built.
+  version-check:
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      - name: Tag must match cmake/Version.cmake
+        run: |
+          version=$(sed -n -E \
+            's/^set\(SKAB_VERSION_(MAJOR|MINOR|PATCH)[[:space:]]+([0-9]+)\).*/\2/p' \
+            cmake/Version.cmake | paste -sd. -)
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match cmake/Version.cmake (${version})"
+            exit 1
+          fi
+          echo "tag ${GITHUB_REF_NAME} matches project version ${version}"
+
+  build-linux:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
@@ -57,20 +79,91 @@ jobs:
         run: cmake --build --preset relwithdebinfo --target package
 
       - name: Upload packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: packages-${{ github.sha }}
+          name: packages-Linux
           path: |
             _build/Linux/relwithdebinfo/*.zip
             _build/Linux/relwithdebinfo/*.deb
 
+  build-windows:
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # uv provisions the Conan 2 client into .venv (see cmake/fetch_conan.cmake);
+      # ninja is the generator used by the CMake presets.
+      - name: Install build tools
+        run: python -m pip install --upgrade uv ninja
+
+      # The Conan home lives inside the build tree (see cmake/fetch_conan.cmake),
+      # so nothing outside the workspace is written. Keep the package cache
+      # between runs: a cold cache means downloading roughly 150 MB, and a
+      # compiler with no published binaries would build from source.
+      - name: Cache Conan packages
+        uses: actions/cache@v6
+        with:
+          path: _build/conan2/p
+          key: conan2-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan2-${{ runner.os }}-
+
+      - name: Install SilKit
+        shell: pwsh
+        run: |
+          $zip = "SilKit-$env:SILKIT_VERSION-Win-x86_64-VS2019.zip"
+          $url = "https://github.com/vectorgrp/sil-kit/releases/download/v$env:SILKIT_VERSION/$zip"
+          $dest = Join-Path $env:RUNNER_TEMP "silkit"
+          Invoke-WebRequest -Uri $url -OutFile (Join-Path $env:RUNNER_TEMP $zip)
+          Expand-Archive -Path (Join-Path $env:RUNNER_TEMP $zip) -DestinationPath $dest -Force
+          # The layout inside the archive is not part of any stability guarantee,
+          # so locate the package configuration instead of hardcoding a path.
+          $cfg = Get-ChildItem -Path $dest -Recurse -Filter SilKitConfig.cmake |
+                 Select-Object -First 1
+          if (-not $cfg) { throw "SilKitConfig.cmake not found under $dest" }
+          Add-Content -Path $env:GITHUB_ENV -Value "SilKit_DIR=$($cfg.Directory.FullName)"
+
+      # One cmd step so the environment set up by vcvars64.bat survives across the
+      # cmake invocations. && chaining is required: shell cmd only reports the exit
+      # code of the last command.
+      - name: Configure, build, test and package
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VSPATH=%%i
+          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cmake --preset relwithdebinfo -DSilKit_DIR="%SilKit_DIR%" && ^
+          cmake --build --preset relwithdebinfo && ^
+          ctest --preset relwithdebinfo --output-on-failure && ^
+          cmake --build --preset relwithdebinfo --target package
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: packages-Windows
+          path: _build/Windows/relwithdebinfo/*.zip
+
+  release:
+    needs: [version-check, build-linux, build-windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: packages-*
+          path: dist
+          merge-multiple: true
+
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            _build/Linux/relwithdebinfo/*.deb \
-            _build/Linux/relwithdebinfo/*.zip \
+            dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes

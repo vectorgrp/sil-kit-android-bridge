@@ -17,7 +17,7 @@ auto GetVersionString()
 {
     std::string hash{SilKit::Version::GitHash()};
     auto shortHash = hash.substr(0, 7);
-    return fmt::format(R"({{"AndroidBridge": "{}", "SilKit": {{"Version": "{}", "GitHash": "{}"}}}})", SK_VHAL_VERSION, SilKit::Version::String(), shortHash);
+    return fmt::format(R"({{"AndroidBridge": "{}", "SilKit": {{"Version": "{}", "GitHash": "{}"}}}})", SKAB_VHAL_VERSION, SilKit::Version::String(), shortHash);
 }
 
 int main(int argc, char** argv) try {

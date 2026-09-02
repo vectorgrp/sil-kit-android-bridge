@@ -11,15 +11,18 @@
 #   GTest::gmock_main   - GoogleMock library with a default main()
 #
 # Linux (Ubuntu 22.04): apt install libgtest-dev libgmock-dev
-# Windows: gtest/1.16.0 via Conan 1 (conanfile.py). The `conan install` is run
-#   once by cmake/gRPC.cmake's fetch_conan(); its cmake_find_package generator
-#   produces FindGTest.cmake on CMAKE_MODULE_PATH. Therefore this module must be
+# Windows: gtest via Conan 2 (conanfile.py). The `conan install` is run once by
+#   cmake/gRPC.cmake's fetch_conan(), which puts the CMakeDeps-generated
+#   GTest-config.cmake on CMAKE_PREFIX_PATH. Therefore this module must be
 #   included AFTER cmake/gRPC.cmake on Windows.
+#
+# Config mode is tried first on purpose: CMake ships a FindGTest module that can
+# half-match a package manager's layout, so being explicit avoids surprises.
 
-find_package(GTest REQUIRED)
-
-if(WIN32)
-    message(STATUS "GoogleTest: found via Conan (${GTest_VERSION})")
+find_package(GTest CONFIG QUIET)
+if(GTest_FOUND)
+    message(STATUS "GoogleTest: found via CMake config (${GTest_VERSION})")
 else()
-    message(STATUS "GoogleTest: found via CMake/system (${GTest_VERSION})")
+    find_package(GTest MODULE REQUIRED)
+    message(STATUS "GoogleTest: found via CMake's FindGTest module (${GTest_VERSION})")
 endif()

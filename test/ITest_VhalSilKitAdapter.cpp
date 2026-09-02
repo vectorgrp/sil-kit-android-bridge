@@ -6,7 +6,11 @@
 // in-process SIL Kit registry. This verifies the GetProperty/SetProperty
 // round-trips through the bridge and locks in the wire/label/function-name
 // contract that CANoe relies on.
-#include <chrono>
+//
+// SetUp() ends with a discovery barrier, so every test below runs against a
+// settled system and asserts on logic alone. Nothing here waits out a duration
+// or treats a slow CI runner as a failure; see "Timing discipline" in
+// SkParticipant.hpp.
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -102,6 +106,22 @@ protected:
                                                MakeClientSpec("GetPropertyFloat"));
         setFloatClient_ = canoe_->AddRpcClient("Default::VhalSilkit::vhalProperties.SetPropertyFloat",
                                                MakeClientSpec("SetPropertyFloat"));
+        // Created here, in the same discovery round as the well-named clients, so
+        // that WrongFunctionNameDoesNotMatch compares like with like. Distinct
+        // canonical (controller) name - it must be unique per participant and does
+        // not affect matching; only the RpcSpec function name does.
+        badClient_ = canoe_->AddRpcClient("wrong-function-name-probe",
+                                          MakeClientSpec("VhalSilkit::vhalProperties.GetProperty"));
+
+        // Discovery barrier. Everything below this point is a settled system, so
+        // no individual test needs a retry or a duration of its own: a test that
+        // sees ServerNotReachable is seeing a contract violation, not a slow
+        // runner. Both waits are on logical conditions (see SkParticipant.hpp).
+        ASSERT_TRUE(canoe_->WaitUntilConnected("VhalBridge"))
+            << "the adapter participant never joined the session";
+        const auto probe = canoe_->AwaitServerReachable(getClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
+        ASSERT_EQ(probe.status, Rpc::RpcCallStatus::Success)
+            << "the adapter's RPC servers were never matched by a correctly specified client";
     }
 
     void TearDown() override
@@ -118,6 +138,7 @@ protected:
     Rpc::IRpcClient* setClient_{nullptr};
     Rpc::IRpcClient* getFloatClient_{nullptr};
     Rpc::IRpcClient* setFloatClient_{nullptr};
+    Rpc::IRpcClient* badClient_{nullptr};
 };
 
 TEST_F(AdapterRpcTest, GetPropertyReturnsMockValue)
@@ -158,14 +179,17 @@ TEST_F(AdapterRpcTest, UnknownPropertyReturnsZero)
 // Regression guard for the CANoe-interop bug: the RpcSpec function name is the
 // matching key. A client that uses the full DO path as the function name (the
 // old, broken behavior) must NOT match the adapter's server.
+//
+// "Does not match" cannot be proven by waiting - absence of a match is always
+// indistinguishable from a match that has not happened yet. It is proven by
+// ordering instead: SetUp() has already established that this participant
+// matched a correctly specified client to the adapter, and the adapter creates
+// all four of its RPC servers in Init(), before its lifecycle starts. So the
+// adapter's complete server set is known here, badClient_ was announced in that
+// same round, and its being unmatched is a conclusion rather than a deadline.
 TEST_F(AdapterRpcTest, WrongFunctionNameDoesNotMatch)
 {
-    // Distinct canonical (controller) name - it must be unique per participant and
-    // does not affect matching; only the RpcSpec function name does.
-    auto* badClient = canoe_->AddRpcClient("wrong-function-name-probe",
-                                           MakeClientSpec("VhalSilkit::vhalProperties.GetProperty"));
-    const auto result = canoe_->Call(badClient, ToSpan(GetReq("EV_BATTERY_LEVEL")),
-                                     std::chrono::milliseconds{750}, /*retryUntilReachable*/ false);
+    const auto result = canoe_->Call(badClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
     EXPECT_EQ(result.status, Rpc::RpcCallStatus::ServerNotReachable);
 
     // ...while the correctly-named client on the same participant does match.

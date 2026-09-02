@@ -35,15 +35,38 @@ A copy of the Apache License, Version 2.0 is available at
 
 ## Link-time dependencies (not vendored)
 
-These are resolved at build time and are not redistributed within this repository, but the
-compiled binaries link against them:
+These are resolved at build time and are not present in this repository, but the compiled
+binaries link against them. **On Windows they are linked statically**, which means a
+distributed Windows binary contains them and their notices have to travel with it.
 
-| Component | License | Source |
-|-----------|---------|--------|
-| gRPC | Apache-2.0 | ConanCenter (Windows) / distribution packages (Linux) |
-| Protobuf | BSD-3-Clause | pulled in with gRPC |
-| GoogleTest / GoogleMock (tests only) | BSD-3-Clause | ConanCenter (Windows) / distribution packages (Linux) |
-| Vector SIL Kit | see [SIL Kit](https://github.com/vectorgrp/sil-kit) | public GitHub releases |
+| Component | License | Linkage (Windows) | Source |
+|-----------|---------|-------------------|--------|
+| gRPC | Apache-2.0 | static | ConanCenter (Windows) / distribution packages (Linux) |
+| Protobuf | BSD-3-Clause | static | pulled in with gRPC |
+| abseil | Apache-2.0 | static | pulled in with gRPC |
+| OpenSSL | Apache-2.0 | static | pulled in with gRPC |
+| re2 | BSD-3-Clause | static | pulled in with gRPC |
+| c-ares | MIT | static | pulled in with gRPC |
+| zlib | Zlib | static | pulled in with gRPC |
+| Vector SIL Kit | MIT | shared, `SilKit.dll` is shipped in the archive | public GitHub releases |
+| GoogleTest / GoogleMock | BSD-3-Clause | tests only, not packaged | ConanCenter (Windows) / distribution packages (Linux) |
 
-If you redistribute compiled binaries, ensure the applicable notices for these link-time
-dependencies accompany your distribution.
+On Linux these come from distribution packages, are linked dynamically, and the `.deb`
+declares them through `dpkg-shlibdeps`, so the distribution's own copyright files apply.
+
+### Notices shipped with the binaries
+
+The packages produced by `cmake --build --target package` carry the full license text of
+every component listed above, under:
+
+    share/doc/sil-kit-android-bridge/licenses/
+
+with one directory per component and an index in `NOTICES-conan.md` giving the exact versions
+and SPDX identifiers. The texts for the Conan-resolved components are collected at configure
+time by [cmake/conan/licenses_deployer.py](cmake/conan/licenses_deployer.py), and everything
+is installed by [cmake/Notices.cmake](cmake/Notices.cmake). That index is authoritative for
+versions; the tables in this file name components, not versions.
+
+Apache-2.0 section 4(d) is the operative obligation for gRPC, abseil and OpenSSL, and it is
+satisfied by that directory. If you repackage these binaries by other means, carry those
+files along.

@@ -5,6 +5,7 @@
             "name": "mixin-dirs",
             "description": "Set default binary / install dirs",
             "hidden": true,
+            "generator": "Ninja",
             "binaryDir": "${sourceDir}/_build/${hostSystemName}/${presetName}",
             "installDir": "${sourceDir}/_install/${hostSystemName}/${presetName}",
             "vendor": {
@@ -17,22 +18,27 @@
 
         {
             "name": "debug",
+            "description": "Linux only. ConanCenter publishes no Windows Debug binaries, so a Debug build there compiles the whole dependency tree from source; use relwithdebinfo on Windows.",
             "inherits": ["mixin-dirs"],
-            "generator": "Ninja",
+            "condition": {
+                "type": "notEquals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             }
         },
         {
             "name": "release",
-            "inherits": ["debug"],
+            "inherits": ["mixin-dirs"],
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
         },
         {
             "name": "relwithdebinfo",
-            "inherits": ["debug"],
+            "inherits": ["mixin-dirs"],
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo"
             }
@@ -41,7 +47,12 @@
     "buildPresets": [
         {
             "name": "debug",
-            "configurePreset": "debug"
+            "configurePreset": "debug",
+            "condition": {
+                "type": "notEquals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
         },
         {
             "name": "release",
@@ -56,7 +67,12 @@
     "testPresets": [
         {
             "name": "debug",
-            "configurePreset": "debug"
+            "configurePreset": "debug",
+            "condition": {
+                "type": "notEquals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
         },
         {
             "name": "release",
