@@ -3,3 +3,4 @@ _build
 CMakeUserPresets.json
 .venv
 .conan2
+__pycache__

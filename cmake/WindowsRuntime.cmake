@@ -7,10 +7,10 @@
 # targets use gtest_discover_tests(), which launches the test executables at
 # BUILD time - so a missing DLL breaks the build, not just the test run.
 #
-# sk_copy_runtime_dlls(<target>) copies the runtime DLLs of an executable next to
-# it after linking. It is a no-op on non-Windows platforms.
+# skab_copy_runtime_dlls(<target>) copies the runtime DLLs of an executable
+# next to it after linking. It is a no-op on non-Windows platforms.
 
-function(sk_copy_runtime_dlls target)
+function(skab_copy_runtime_dlls target)
     if(NOT WIN32)
         return()
     endif()

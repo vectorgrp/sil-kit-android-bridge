@@ -51,7 +51,7 @@ Relevant cache variables (see [cmake/fetch_conan.cmake](cmake/fetch_conan.cmake)
 | `CONAN_VENV_DIR` | location of the virtual environment (default `_build/conan-venv`) |
 | `CONAN_HOME_DIR` | Conan home for this project (default `_build/conan2`) |
 | `CONAN_EXECUTABLE` | use an existing Conan 2 client instead of provisioning one |
-| `SK_ALLOW_WINDOWS_DEBUG` | permit a Debug configure despite the source build it implies (see below) |
+| `SKAB_ALLOW_WINDOWS_DEBUG` | permit a Debug configure despite the source build it implies (see below) |
 
 The Conan home is scoped to this project so that an existing Conan installation
 is never touched, and so that the build can install its own compatibility plugin

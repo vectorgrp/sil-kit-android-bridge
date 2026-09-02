@@ -22,7 +22,7 @@
 
 include(GNUInstallDirs)
 
-set(SK_NOTICES_DESTINATION "${CMAKE_INSTALL_DOCDIR}/licenses")
+set(SKAB_NOTICES_DESTINATION "${CMAKE_INSTALL_DOCDIR}/licenses")
 
 install(FILES
     "${CMAKE_SOURCE_DIR}/README.md"
@@ -31,25 +31,25 @@ install(FILES
     DESTINATION "${CMAKE_INSTALL_DOCDIR}"
 )
 
-set(_sk_vendored_root "${CMAKE_SOURCE_DIR}/source/third_party")
+set(_skab_vendored_root "${CMAKE_SOURCE_DIR}/source/third_party")
 
 install(FILES
-    "${_sk_vendored_root}/android-16.0.0_r3/hardware/interfaces/NOTICE"
-    DESTINATION "${SK_NOTICES_DESTINATION}/aosp-vhal"
+    "${_skab_vendored_root}/android-16.0.0_r3/hardware/interfaces/NOTICE"
+    DESTINATION "${SKAB_NOTICES_DESTINATION}/aosp-vhal"
 )
 install(FILES
-    "${_sk_vendored_root}/spdlog/LICENSE"
-    DESTINATION "${SK_NOTICES_DESTINATION}/spdlog"
+    "${_skab_vendored_root}/spdlog/LICENSE"
+    DESTINATION "${SKAB_NOTICES_DESTINATION}/spdlog"
 )
 install(FILES
-    "${_sk_vendored_root}/spdlog/include/spdlog/fmt/bundled/fmt.license.rst"
-    DESTINATION "${SK_NOTICES_DESTINATION}/fmt"
+    "${_skab_vendored_root}/spdlog/include/spdlog/fmt/bundled/fmt.license.rst"
+    DESTINATION "${SKAB_NOTICES_DESTINATION}/fmt"
 )
 
 # Resolves the file behind an imported target, trying the configuration-agnostic
 # property first and then the per-configuration ones. SIL Kit exports only
 # IMPORTED_LOCATION_RELEASE, so the plain property is empty for it.
-function(_sk_imported_location target out_var)
+function(_skab_imported_location target out_var)
     set(${out_var} "" PARENT_SCOPE)
     if(NOT TARGET ${target})
         return()
@@ -77,7 +77,7 @@ endfunction()
 # stability guarantee - the MSI puts the DLL in <root>/x86_64/bin while the
 # release archive nests it differently - so the files are located rather than
 # addressed by a hardcoded path.
-function(_sk_find_upwards start_dir relative_path levels out_var)
+function(_skab_find_upwards start_dir relative_path levels out_var)
     set(${out_var} "" PARENT_SCOPE)
     set(_dir "${start_dir}")
     foreach(_i RANGE ${levels})
@@ -97,21 +97,21 @@ endfunction()
 # own third-party notices go with it. On Linux libsilkit comes from a .deb that
 # carries its own copyright file, and nothing is redistributed here.
 if(WIN32)
-    _sk_imported_location(SilKit::SilKit _silkit_binary)
+    _skab_imported_location(SilKit::SilKit _silkit_binary)
     if(_silkit_binary)
         get_filename_component(_silkit_bindir "${_silkit_binary}" DIRECTORY)
-        _sk_find_upwards("${_silkit_bindir}" "LICENSE.txt" 4 _silkit_license)
-        _sk_find_upwards("${_silkit_bindir}" "Source/ThirdParty/LICENSES.rst" 4
+        _skab_find_upwards("${_silkit_bindir}" "LICENSE.txt" 4 _silkit_license)
+        _skab_find_upwards("${_silkit_bindir}" "Source/ThirdParty/LICENSES.rst" 4
             _silkit_third_party)
     endif()
 
     if(_silkit_license)
         install(FILES "${_silkit_license}"
-            DESTINATION "${SK_NOTICES_DESTINATION}/silkit")
+            DESTINATION "${SKAB_NOTICES_DESTINATION}/silkit")
     endif()
     if(_silkit_third_party)
         install(FILES "${_silkit_third_party}"
-            DESTINATION "${SK_NOTICES_DESTINATION}/silkit")
+            DESTINATION "${SKAB_NOTICES_DESTINATION}/silkit")
     endif()
     if(NOT _silkit_license AND NOT _silkit_third_party)
         message(WARNING
@@ -121,9 +121,9 @@ if(WIN32)
     endif()
 
     # Written by cmake/conan/licenses_deployer.py during fetch_conan().
-    if(SK_CONAN_LICENSE_DIR AND EXISTS "${SK_CONAN_LICENSE_DIR}")
-        install(DIRECTORY "${SK_CONAN_LICENSE_DIR}/"
-            DESTINATION "${SK_NOTICES_DESTINATION}")
+    if(SKAB_CONAN_LICENSE_DIR AND EXISTS "${SKAB_CONAN_LICENSE_DIR}")
+        install(DIRECTORY "${SKAB_CONAN_LICENSE_DIR}/"
+            DESTINATION "${SKAB_NOTICES_DESTINATION}")
     else()
         message(WARNING
             "Conan license texts were not collected; the package will ship "

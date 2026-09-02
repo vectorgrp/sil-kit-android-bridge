@@ -29,8 +29,9 @@ else()
 endif()
 
 # Package file name without generator extension, e.g.:
-#   sil-kit-android-bridge-0.1.0-Linux-x86_64.zip / .deb
-#   sil-kit-android-bridge-0.1.0-Windows-x86_64.zip
+#   sil-kit-android-bridge-<version>-Linux-x86_64.zip / .deb
+#   sil-kit-android-bridge-<version>-Windows-x86_64.zip
+# where <version> comes from cmake/Version.cmake by way of PROJECT_VERSION.
 set(CPACK_PACKAGE_FILE_NAME
     "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_NAME}-${_package_arch}")
 

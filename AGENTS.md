@@ -34,6 +34,17 @@ See @AGENTS-sil-kit.md for the SIL Kit (FOSS) repository layout and stability gu
 - header only declarations should first have the declarations, and then the implementations after the declaration ina block (this is currently not done everywhere)
 - do not add gratuitous interfaces, however allow for testing and dependency injection.
 - use trailing return type functions (e.g. auto foo() -> returnValue)
+- prefix project-owned identifiers (CMake variables, compile definitions,
+  environment variables) with `SKAB_` / `skab_`. Plain `SK_` and `SAB_` are used
+  by other projects and collide.
+
+## versioning
+`cmake/Version.cmake` is the single source of the project version: it holds the
+major/minor/patch triple, the top-level `CMakeLists.txt` includes it before
+`project()`, `conanfile.py` parses it in `set_version()`, and the release
+workflow checks the pushed `v*` tag against it. A bump is a one-line edit there;
+CPack, the `SKAB_VHAL_VERSION` compile definition and the Conan graph all follow.
+Keep the `set()` lines plain - the non-CMake readers use a regular expression.
 
 ## building
 use cmake preset `debug` on Linux, `relwithdebinfo` on Windows. The `debug`

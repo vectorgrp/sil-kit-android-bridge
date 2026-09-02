@@ -106,7 +106,7 @@ add_executable(${EXE_NAME}
 set_target_properties(${EXE_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
-target_compile_definitions(${EXE_NAME} PRIVATE "SK_VHAL_VERSION=\"${PROJECT_VERSION}\"")
+target_compile_definitions(${EXE_NAME} PRIVATE "SKAB_VHAL_VERSION=\"${PROJECT_VERSION}\"")
 target_link_libraries(${EXE_NAME}
     PRIVATE
         proto_lib
@@ -114,7 +114,7 @@ target_link_libraries(${EXE_NAME}
         spdlog::spdlog
 )
 target_include_directories(${EXE_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-sk_copy_runtime_dlls(${EXE_NAME})
+skab_copy_runtime_dlls(${EXE_NAME})
 
 include(GNUInstallDirs)
 install(TARGETS ${EXE_NAME}
