@@ -25,6 +25,13 @@ See @AGENTS-sil-kit.md for the SIL Kit (FOSS) repository layout and stability gu
 ## Coding conventions
 
 - do test driven development. always write tests that capture the new architecture/behavior first, then add the implementation and use tests as guard rails.
+- tests assert on logic, never on timing. CI runners are heavily loaded and skew
+  execution time arbitrarily, so no assertion may depend on something happening
+  within a duration. Wait on a condition (an event, a state query, a barrier that
+  proves the system settled); a timeout is only ever a hang guard, set far beyond
+  any plausible delay, and never a threshold a passing test approaches. Proving a
+  negative ("this must not match") is done by ordering it after a positive that
+  establishes the same precondition, not by waiting a while and seeing nothing.
 - Unit tests go in files `Test_*` and have no dependency on public APIs.
 - Integration Tests go in files `ITest_*`, they should only depend on the network simulator and public SilKit.{so,dll} APIs
 - SPDX license header on every new file: `// SPDX-FileCopyrightText: 2026 Vector Informatik GmbH` + `// SPDX-License-Identifier: MIT`, update for current year
