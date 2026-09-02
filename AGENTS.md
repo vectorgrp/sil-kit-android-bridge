@@ -53,6 +53,11 @@ workflow checks the pushed `v*` tag against it. A bump is a one-line edit there;
 CPack, the `SKAB_VHAL_VERSION` compile definition and the Conan graph all follow.
 Keep the `set()` lines plain - the non-CMake readers use a regular expression.
 
+Releases are cut by pushing a `v*` tag; CI then leaves a draft release with the
+archives attached, for a human to publish. Never publish a release by hand
+before CI has attached them - under immutable releases that seals the release
+and burns the tag name for good. See the Releasing section in README.md.
+
 ## building
 use cmake preset `debug` on Linux, `relwithdebinfo` on Windows. The `debug`
 preset is disabled on Windows: ConanCenter publishes no Debug binaries, so a

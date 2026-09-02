@@ -176,6 +176,33 @@ running VHAL gRPC server:
 Server Edition test configuration that exercises the adapter from a CANoe test
 bench.
 
+## Releasing
+
+The project version lives in [cmake/Version.cmake](cmake/Version.cmake) and
+nowhere else; CMake, Conan and CI all read it from there.
+
+1. Bump the triple in `cmake/Version.cmake` and merge to `main`.
+2. Tag that commit and push the tag - this is what starts a release:
+   ```sh
+   git tag -a vX.Y.Z -m "vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
+3. CI checks the tag against `cmake/Version.cmake` (a mismatch fails in seconds,
+   before either platform builds), builds and tests Linux and Windows, then
+   creates a **draft** release with the archives attached.
+4. Review the generated notes on the draft and press Publish.
+
+Do not publish a release by hand before CI has attached the archives. If
+[immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+are enabled, publishing seals the release: its assets can no longer be changed,
+and its tag name is reserved permanently - deleting the release does not give the
+name back, so the version has to be skipped.
+
+Creating the release in the UI is still handled - the job uploads to an existing
+draft or release rather than failing - but pushing the tag is the reliable
+trigger, since a draft against a tag that does not exist yet creates no tag and
+so starts no build.
+
 ## Packaging
 
 ```sh

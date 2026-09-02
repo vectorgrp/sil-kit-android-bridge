@@ -21,34 +21,15 @@
 
 #include "TestHarness.hpp"
 
-// SkParticipant: a thin, reusable SIL Kit participant wrapper for tests. It is
-// not specific to any role - a test composes a "fake CANoe" by adding RpcClients
-// with the desired RpcSpec and issuing synchronous calls.
+// SkParticipant: a thin, reusable SIL Kit participant wrapper for tests. A test
+// composes a "fake CANoe" by adding RpcClients with the desired RpcSpec and
+// issuing synchronous calls. The participant runs an autonomous lifecycle,
+// started non-blocking in the ctor.
 //
-// The participant runs an autonomous lifecycle (started, non-blocking, in the
-// ctor). RPC results arrive asynchronously on a SIL Kit worker thread; Call()
-// bridges that back to the calling thread via a per-call std::promise keyed by a
-// unique context id.
-//
-// Timing discipline
-// -----------------
-// No assertion in a test may depend on how fast the machine is. A loaded CI
-// runner can stall any of these steps for seconds, so nothing here treats "not
-// finished yet" as "broken". Waiting is done on logical conditions:
-//
-//   WaitUntilConnected()      - the peer participant has joined the session
-//                               (ISystemMonitor, event driven).
-//   AwaitServerReachable()    - SIL Kit has matched an RpcClient to a server.
-//                               SIL Kit publishes no event for RPC matching, so
-//                               a successful call is the only sound proof that
-//                               it happened; this retries until it does.
-//   Call()                    - issues exactly one call and reports whatever
-//                               status comes back. It never retries, so a test
-//                               asserting on a status gets the real one.
-//
-// kWatchdog bounds every wait. It is NOT a correctness threshold and no test
-// should ever come close to it: it exists only so that a genuinely broken build
-// fails instead of hanging a CI job forever.
+// No assertion may depend on how fast the machine is, so waiting is done on
+// logical conditions - WaitUntilConnected() and AwaitServerReachable() - and
+// Call() never retries. kWatchdog only bounds a hang; it is not a threshold any
+// passing test approaches.
 
 namespace test
 {
@@ -62,7 +43,6 @@ public:
         std::vector<uint8_t> data;
     };
 
-    // See "Timing discipline" above: a hang guard, not a deadline anyone races.
     static constexpr std::chrono::seconds kWatchdog{60};
 
     SkParticipant(const std::string& name, const std::string& registryUri,
@@ -72,8 +52,7 @@ public:
     {
         participant_ = SilKit::CreateParticipant(MakeLoggingConfig(logLevel), name, registryUri);
 
-        // Installed before the lifecycle starts, so no peer can connect between
-        // the monitor being created and the handler being armed.
+        // Armed before the lifecycle starts, so no peer connects unobserved.
         monitor_ = participant_->CreateSystemMonitor();
         monitor_->SetParticipantConnectedHandler(
             [this](const SilKit::Services::Orchestration::ParticipantConnectionInformation& info) {
@@ -97,10 +76,8 @@ public:
             {
                 lifecycle_->Stop("SkParticipant teardown");
             }
-            // Wait for the lifecycle to actually reach its final state before the
-            // participant is destroyed. Dropping it while the stop is still in
-            // flight makes peers log an ungraceful disconnect and leaves the next
-            // fixture racing a half-closed session.
+            // Dropping the participant mid-stop makes peers log an ungraceful
+            // disconnect and leaves the next fixture racing a half-closed session.
             if (finalState_.valid())
             {
                 finalState_.wait_for(kWatchdog);
@@ -137,23 +114,18 @@ public:
             });
     }
 
-    // Blocks until `participantName` has joined the session. Event driven: it
-    // returns the moment the connection is observed, however long that takes.
-    // False means the watchdog expired, i.e. the peer never showed up at all.
+    // Blocks until `participantName` has joined. False means it never did.
     auto WaitUntilConnected(const std::string& participantName) -> bool
     {
         std::unique_lock<std::mutex> lock(mutex_);
         return connectedCv_.wait_for(lock, kWatchdog, [&] {
-            // IsParticipantConnected() covers a peer that was already connected
-            // before this call; the handler covers every later one.
+            // The query covers a peer connected before this call, the handler the rest.
             return connected_.count(participantName) != 0
                    || monitor_->IsParticipantConnected(participantName);
         });
     }
 
-    // Issue exactly one call and wait for its result. No retrying, so the status
-    // a test sees is the status SIL Kit produced. Timeout means the watchdog
-    // expired without any result event at all.
+    // Exactly one call, so the status a test sees is the one SIL Kit produced.
     auto Call(SilKit::Services::Rpc::IRpcClient* client, SilKit::Util::Span<const uint8_t> request)
         -> CallResult
     {
@@ -161,8 +133,7 @@ public:
         void* ctx;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            // A unique id per call, never a recycled address: an abandoned call
-            // whose result arrives late must not be able to complete a later one.
+            // Never a recycled address: a late result must not complete a later call.
             ctx = reinterpret_cast<void*>(nextContext_++);
             pending_[ctx] = promise;
         }
@@ -179,10 +150,8 @@ public:
         return future.get();
     }
 
-    // Barrier for "this client has been matched to a server". SIL Kit exposes no
-    // event for RPC matching, so the only sound proof is a call that succeeds;
-    // ServerNotReachable before that means "not matched yet", never "wrong".
-    // `request` must be a harmless probe - it really is executed by the server.
+    // Barrier for "matched to a server". SIL Kit has no event for RPC matching,
+    // so a successful call is the only proof; `request` is really executed.
     auto AwaitServerReachable(SilKit::Services::Rpc::IRpcClient* client,
                               SilKit::Util::Span<const uint8_t> request) -> CallResult
     {
@@ -195,8 +164,6 @@ public:
             {
                 return result;
             }
-            // Backoff between attempts. Only throttles the retry loop; no
-            // assertion depends on how long it takes to leave it.
             std::this_thread::sleep_for(std::chrono::milliseconds{20});
         }
     }
