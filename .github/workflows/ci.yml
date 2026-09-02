@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Tag must match cmake/Version.cmake
         run: |
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
@@ -79,7 +79,7 @@ jobs:
         run: cmake --build --preset relwithdebinfo --target package
 
       - name: Upload packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: packages-Linux
           path: |
@@ -90,7 +90,7 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # uv provisions the Conan 2 client into .venv (see cmake/fetch_conan.cmake);
       # ninja is the generator used by the CMake presets.
@@ -102,7 +102,7 @@ jobs:
       # between runs: a cold cache means downloading roughly 150 MB, and a
       # compiler with no published binaries would build from source.
       - name: Cache Conan packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: _build/conan2/p
           key: conan2-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
@@ -138,7 +138,7 @@ jobs:
           cmake --build --preset relwithdebinfo --target package
 
       - name: Upload packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: packages-Windows
           path: _build/Windows/relwithdebinfo/*.zip
@@ -152,7 +152,7 @@ jobs:
 
     steps:
       - name: Download packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: packages-*
           path: dist
