@@ -7,12 +7,14 @@ co-simulation between Android Automotive environments and CANoe/SIL Kit-based
 test benches.
 
 > [!WARNING]
-> **This is a proof of concept. We want your feedback.**
+> **This is a public preview. We want your feedback.**
 >
-> It began as a demo and has not been hardened, security reviewed, or run in
-> production. While the project is on `0.x`, the CLI, the property model and the
-> RPC surface may change without notice or a deprecation period. Do not expose it
-> to an untrusted network.
+> The [VhalSimple API](#the-vhalsimple-api) is complete for every type the bridge
+> models, versioned, and covered by tests, so it is something you can build
+> against. The project around it is early: it has not been hardened, security
+> reviewed, or run in production. While it is on `0.x`, the CLI, the property
+> model and the RPC surface may change without notice or a deprecation period. Do
+> not expose it to an untrusted network.
 >
 > We are publishing it early on purpose, because the useful next step is finding
 > out what people actually need from it. **Please
@@ -26,9 +28,8 @@ test benches.
 > - **Polling only.** The VHAL to SIL Kit *push* direction is not implemented.
 >   `AddPropertyChangedHandler` returns `0` and does nothing, so a CANoe test has
 >   to read values rather than being notified of changes.
-> - **The CANoe surface is deliberately small.** It is a named, versioned
->   [Simple API](#the-vhalsimple-api): scalar get/set only. That is a scope
->   decision, not a gap - see the section below for what is out and why.
+> - **The CANoe surface is deliberately small.** Scalar get/set only. That is a
+>   scope decision, not a gap - see [Scope](#scope) for what is out and why.
 > - **Errors look like data on the wire.** An unknown property, a read the VHAL
 >   refused, and a type mismatch all answer `0` with `RpcCallStatus::Success`,
 >   because the VCDL methods carry no status out-parameter. From the response
@@ -36,14 +37,12 @@ test benches.
 >   the wire cannot say, the bridge log now does: all three cases are logged, in
 >   both the read and the write direction, and a non-OK VHAL `StatusCode` is no
 >   longer converted into a plausible-looking number.
-> - **The networked gRPC path has no automated coverage.** The translation layer
->   is covered -- `source/VhalGrpcConvert.cpp` handles URI validation, value
->   conversion, `StatusCode` gating and the `CarProperty`-to-protobuf mapping, and
->   `test/Test_VhalGrpcClient.cpp` exercises it. The stub that actually talks to a
->   device is driven only by hand: CI runs against the built-in mock. The full
->   chain (CANoe -> SIL Kit -> bridge -> gRPC -> VHAL) has been validated manually
->   against a live Cuttlefish image, but nothing stops it regressing between
->   releases. Expect rough edges against real hardware, and please report them.
+> - **No automated test drives a real device.** CI covers the gRPC path against a
+>   fake VHAL, including the error, health and result-handling paths and which
+>   protobuf field each write lands in, and exercises the whole chain (SIL Kit ->
+>   bridge -> gRPC -> VHAL) end to end. What it cannot do is run an Android image:
+>   that part is validated by hand against Cuttlefish, most recently for the 0.4
+>   release. Expect rough edges against real hardware, and please report them.
 
 ## The VhalSimple API
 
@@ -215,20 +214,15 @@ carries its own logging setup.
 
 ## Testing
 
-Tests live in [test/](test/) and use GoogleTest, registered with CTest. `Test_*`
-are unit tests; `ITest_*` are integration tests that spin up an in-process SIL Kit
-registry (no external `sil-kit-registry` needed). Run them all with:
-
 ```sh
 ctest --preset relwithdebinfo --output-on-failure
 ```
 
-`grpc-client-test` is a manual developer tool (not a CTest case) that requires a
-running VHAL gRPC server:
-
-```sh
-./_build/Linux/relwithdebinfo/test/grpc-client-test /tmp/vsock_1_1000/vm.vsock
-```
+The suite is self-contained: it starts its own SIL Kit registry and its own fake
+VHAL, so it needs neither a running `sil-kit-registry` nor an Android device.
+What each target covers, how the test scaffolding fits together and what is
+knowingly left uncovered are documented for contributors in
+[AGENTS.md](AGENTS.md#testing).
 
 ## Examples
 

@@ -6,9 +6,16 @@
 #include "VhalGrpcConvert.hpp"
 #include "Print.hpp"
 
+// Dial the URI, then hand the channel to the delegated-to constructor. Keeping
+// ValidateUri here means every production path still rejects a malformed URI;
+// the channel constructor is reached only by a caller that already has one.
 VhalGrpcClient::VhalGrpcClient(const std::string& uri)
-    : stub_(VehicleServer::NewStub(
-          grpc::CreateChannel(VhalConvert::ValidateUri(uri), grpc::InsecureChannelCredentials())))
+    : VhalGrpcClient(grpc::CreateChannel(VhalConvert::ValidateUri(uri), grpc::InsecureChannelCredentials()))
+{
+}
+
+VhalGrpcClient::VhalGrpcClient(std::shared_ptr<grpc::Channel> channel)
+    : stub_(VehicleServer::NewStub(std::move(channel)))
 {
 }
 
@@ -24,13 +31,26 @@ auto VhalGrpcClient::GetProperty(std::string_view name) -> std::optional<CarProp
 
 auto VhalGrpcClient::GetProperties(std::vector<std::string_view> nameList) -> std::vector<std::optional<CarProperty>>
 {
-    std::vector<std::optional<CarProperty>> results;
+    // One slot per requested name, filled by request_id rather than by arrival
+    // order. A VHAL promises nothing about the order it answers in and may omit
+    // a result entirely; attributing result i to name i turns either of those
+    // into another property's value returned under the name that was asked for.
+    // The adapter only type-checks what it gets back, so a same-typed mix-up
+    // would reach CANoe looking perfectly correct.
+    std::vector<std::optional<CarProperty>> results(nameList.size());
     auto&& values = GetValues(nameList);
     for (auto&& result : values.results())
     {
+        const auto index = result.request_id();
+        if (index < 0 || static_cast<size_t>(index) >= results.size())
+        {
+            // A result for something that was never requested. Dropping it is
+            // the only safe option: placing it anywhere would displace a real one.
+            continue;
+        }
         // ToCarProperty(GetValueResult) yields nullopt for a non-OK StatusCode,
         // so a refused read arrives as "no value" rather than as data.
-        VhalConvert::ToCarProperty(result).swap(results.emplace_back());
+        VhalConvert::ToCarProperty(result).swap(results[static_cast<size_t>(index)]);
     }
     return results;
 }
@@ -91,7 +111,13 @@ auto VhalGrpcClient::GetAllProperties() -> std::vector<std::string>
     {
         result.emplace_back(VehicleProperty_GetNameById(config.prop()));
     }
-    (void)reader->Finish();
+    // A stream that dies partway leaves a short list indistinguishable from a
+    // complete one unless the final status is checked.
+    grpc::Status status = reader->Finish();
+    if (!status.ok())
+    {
+        throw VhalClientError("GetAllPropertyConfig failed: " + status.error_message());
+    }
     return result;
 }
 
@@ -101,7 +127,12 @@ bool VhalGrpcClient::CheckHealth()
     VehicleHalCallStatus response;
     grpc::ClientContext context;
     grpc::Status status = stub_->CheckHealth(&context, request, &response);
-    return status.ok();
+    // The transport status only says the call arrived. A VHAL that is up but not
+    // usable answers it successfully and reports the problem in the payload, so
+    // checking only the transport reads an unhealthy VHAL as healthy.
+    // VhalSilKitAdapter::Init refuses to start when this returns false, which
+    // makes it the bridge's only startup gate on the VHAL being usable.
+    return status.ok() && response.status_code() == StatusCode::OK;
 }
 
 bool VhalGrpcClient::PrintAllProperties(std::ostream& out)
@@ -144,11 +175,14 @@ GetValueResults VhalGrpcClient::GetValues(const std::vector<std::string_view>& p
 GetValueResults VhalGrpcClient::GetValues(const std::vector<int32_t>& prop_ids)
 {
     VehiclePropValueRequests request;
-    for (int32_t prop_id : prop_ids)
+    for (size_t i = 0; i < prop_ids.size(); ++i)
     {
         auto* req = request.add_requests();
-        req->set_request_id(prop_id);
-        req->mutable_value()->set_prop(prop_id);
+        // The request index, not the property id. It is what lets a caller line
+        // the results back up with its own request list, and unlike the id it
+        // stays unique when the same property is asked for twice in one call.
+        req->set_request_id(static_cast<int64_t>(i));
+        req->mutable_value()->set_prop(prop_ids[i]);
     }
 
     GetValueResults response;

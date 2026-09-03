@@ -4,15 +4,6 @@ Do not use non-ASCII characters in code or comments.
 Never commit to git without permission.
 Never stage changes, unless asked.
 
-# planning
-Working notes and implementation plans go in a `design/` folder, which is
-gitignored and stays local. This is a public repository: do not commit planning
-documents to it. What belongs in the repository is the change itself, its tests,
-and a pull request that explains the reasoning.
-
-If you keep plans there: number them with a `001-` prefix, give derived plans an
-extra number (`001.01-`), and name them so the name maps to a feature branch.
-
 ## Repository layout
 
 - `source/` - VHAL / SIL Kit adapter code
@@ -50,6 +41,88 @@ extra number (`001.01-`), and name them so the name maps to a feature branch.
 - prefix project-owned identifiers (CMake variables, compile definitions,
   environment variables) with `SKAB_` / `skab_`. Plain `SK_` and `SAB_` are used
   by other projects and collide.
+
+## testing
+
+Run everything with `ctest --preset relwithdebinfo --output-on-failure`. Both
+platforms run the full suite in CI, so a test that only passes on one is a
+broken test. The naming rule and the controllers-before-`StartLifecycle` rule
+are in `## Coding conventions` above; this section is the map.
+
+### Scaffolding
+
+All of it is header-only in `test/`, and none of it needs an external process:
+
+- `TestHarness.hpp` - `test::LiveRegistry` starts an **in-process** SIL Kit
+  registry on `silkit://localhost:0` and exposes the URI it actually bound. No
+  `sil-kit-registry` binary, and every test binary gets its own, so targets run
+  in parallel safely.
+- `SkParticipant.hpp` - a SIL Kit participant playing the CANoe consumer.
+  `AddRpcClient()` throws once `Start()` has run, which enforces the discovery
+  rule mechanically. `AwaitServerReachable()` is the discovery barrier to open a
+  fixture with; `kWatchdog` is a hang guard, never a threshold.
+- `CanoeWire.hpp` - the VhalSimple wire format as CANoe emits it: bare fields,
+  no struct framing. Deliberately hand-written rather than calling
+  `VhalSimpleApi.hpp`, because a test that encodes with the same code the bridge
+  decodes with would pass on any self-consistent format, including a wrong one.
+- `FakeVehicleServer.hpp` - `test::FakeVhal`, a programmable VHAL gRPC server on
+  gRPC's in-process transport (no socket, no port, no bind race). Knobs for
+  per-property `StatusCode`, transport failure, result reordering and dropping,
+  an unhealthy `CheckHealth`, and a truncated config stream.
+  `ReceivedSetRequests()` returns what actually arrived on the wire, which is how
+  the write path is asserted: the BYTES bug returned success at every layer and
+  was only visible as a field-selection error inside the request.
+- `VhalMockClient` lives in **`source/`**, not `test/`, because it is also
+  production `--mock` mode. Changing it changes shipped behaviour.
+
+### What covers what
+
+| Target | Layer |
+|---|---|
+| `Test_VhalMockClient` | the in-memory VHAL: seeding, per-type get/set, wrong-type rejection |
+| `Test_VhalSimpleApi` | identity constants against the vCDL, and the byte-exact CANoe wire format |
+| `Test_VhalGrpcClient` | `VhalGrpcConvert` only - URI validation, both conversion directions, `StatusCode` gating. Proto-only, no channel |
+| `ITest_VhalSilKitAdapter` | faked CANoe consumer -> adapter -> `VhalMockClient`, over a live registry |
+| `ITest_VhalGrpcClient` | `VhalGrpcClient` -> `FakeVhal`: result alignment, health, streams, transport failures, and which protobuf field each write lands in |
+| `ITest_VhalBridgeGrpc` | the whole chain, thin: consumer -> SIL Kit -> adapter -> `VhalGrpcClient` -> `FakeVhal` |
+
+`grpc-client-test` and `silkit-client` are manual tools, built but not registered
+with CTest. `silkit-client` is also installed alongside the bridge.
+
+**Knowingly uncovered**, so nobody has to rediscover it:
+
+- `StartPropertyValuesStream` blocks forever writing to `std::cout` with no
+  cancellation hook. Testing it needs a seam; the push direction is unimplemented
+  anyway.
+- The CANoe side (`examples/vector-canoe-se/`) needs commercial tooling and is
+  validated by hand. What protects it here is `Test_VhalSimpleApi`, which pins
+  the byte layout the vCDL depends on.
+- Real hardware. `FakeVhal` reproduces the VHAL protocol, not a device.
+
+### Adding a test
+
+Pick the layer, then copy that target's link line from `test/CMakeLists.txt` -
+they differ, and linking more than the layer needs blurs what a failure means:
+
+- pure logic: `GTest::gtest_main` + `spdlog::spdlog`
+- protobuf translation: add `proto_lib`
+- gRPC with a server: add `proto_lib` and the `VhalGrpcClient.cpp` /
+  `VhalGrpcConvert.cpp` sources
+- SIL Kit: add `SilKit::SilKit` and `VhalSimpleApi.cpp`
+
+Every target needs `skab_copy_runtime_dlls(<target>)` and
+`gtest_discover_tests(<target>)`.
+
+Two traps. `gtest_discover_tests` **runs the binary at build time** to enumerate
+cases, so nothing may start a server or bind anything at static-init scope -
+fixtures are fine. And any translation unit that includes both
+`<grpcpp/grpcpp.h>` and the VHAL protos needs the `#undef TRY_AGAIN` /
+`#undef ACCESS_DENIED` guard, because winsock2 defines both as macros and both
+are `StatusCode` enumerators.
+
+A new test has to be able to fail. After writing one against a bug, revert the
+fix and watch it go red before moving on - two of the cases first drafted for
+`ITest_VhalBridgeGrpc` passed against the broken code and were not tests at all.
 
 ## versioning
 `cmake/Version.cmake` is the single source of the project version: it holds the

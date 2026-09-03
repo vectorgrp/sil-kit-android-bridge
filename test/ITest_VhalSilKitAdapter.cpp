@@ -21,6 +21,7 @@
 #include "silkit/util/serdes/Deserializer.hpp"
 #include "silkit/util/serdes/Serializer.hpp"
 
+#include "CanoeWire.hpp"
 #include "SkParticipant.hpp"
 #include "TestHarness.hpp"
 #include "VhalMockClient.hpp"
@@ -30,7 +31,6 @@
 namespace
 {
 namespace Rpc = SilKit::Services::Rpc;
-namespace SerDes = SilKit::Util::SerDes;
 using SilKit::Util::ToSpan;
 using test::SkParticipant;
 
@@ -42,91 +42,22 @@ constexpr auto kVirtualNetwork = Api::kVirtualNetwork;
 constexpr auto kNamespace = Api::kNamespace;
 constexpr auto kInstance = Api::kInstance;
 
-// Build the RpcSpec a CANoe-generated consumer uses: the bare method name as the
-// function name (the matching key) plus the three Mandatory labels. Defaults
-// mirror VhalSilKitAdapter::MakeRpcSpec / sil-adapter-builder.
-auto MakeClientSpec(const std::string& functionName, const std::string& ns = kNamespace,
-                    const std::string& instance = kInstance, const std::string& vnet = kVirtualNetwork)
-    -> Rpc::RpcSpec
-{
-    Rpc::RpcSpec spec{functionName, SerDes::MediaTypeRpc()};
-    spec.AddLabel("VirtualNetwork", vnet, SilKit::Services::MatchingLabel::Kind::Mandatory);
-    spec.AddLabel("Namespace", ns, SilKit::Services::MatchingLabel::Kind::Mandatory);
-    spec.AddLabel("Instance", instance, SilKit::Services::MatchingLabel::Kind::Mandatory);
-    return spec;
-}
-
-// Request encoders - bare fields, exactly as the generated TypeLib serializer emits.
-auto GetReq(const std::string& name) -> std::vector<uint8_t>
-{
-    SerDes::Serializer s;
-    s.Serialize(name);
-    return s.ReleaseBuffer();
-}
-auto SetInt32Req(const std::string& name, int32_t value) -> std::vector<uint8_t>
-{
-    SerDes::Serializer s;
-    s.Serialize(name);
-    s.Serialize(value, 32);
-    return s.ReleaseBuffer();
-}
-auto SetFloatReq(const std::string& name, float value) -> std::vector<uint8_t>
-{
-    SerDes::Serializer s;
-    s.Serialize(name);
-    s.Serialize(value);
-    return s.ReleaseBuffer();
-}
-auto SetInt64Req(const std::string& name, int64_t value) -> std::vector<uint8_t>
-{
-    SerDes::Serializer s;
-    s.Serialize(name);
-    s.Serialize(value, 64);
-    return s.ReleaseBuffer();
-}
-auto SetStringReq(const std::string& name, const std::string& value) -> std::vector<uint8_t>
-{
-    SerDes::Serializer s;
-    s.Serialize(name);
-    s.Serialize(value);
-    return s.ReleaseBuffer();
-}
-auto SetBytesReq(const std::string& name, const std::vector<uint8_t>& value) -> std::vector<uint8_t>
-{
-    SerDes::Serializer s;
-    s.Serialize(name);
-    s.Serialize(value);
-    return s.ReleaseBuffer();
-}
-auto EmptyReq() -> std::vector<uint8_t>
-{
-    return {};
-}
-auto ParseInt32(const std::vector<uint8_t>& bytes) -> int32_t
-{
-    SerDes::Deserializer d{bytes};
-    return d.Deserialize<int32_t>(32);
-}
-auto ParseFloat(const std::vector<uint8_t>& bytes) -> float
-{
-    SerDes::Deserializer d{bytes};
-    return d.Deserialize<float>();
-}
-auto ParseInt64(const std::vector<uint8_t>& bytes) -> int64_t
-{
-    SerDes::Deserializer d{bytes};
-    return d.Deserialize<int64_t>(64);
-}
-auto ParseString(const std::vector<uint8_t>& bytes) -> std::string
-{
-    SerDes::Deserializer d{bytes};
-    return d.Deserialize<std::string>();
-}
-auto ParseBytes(const std::vector<uint8_t>& bytes) -> std::vector<uint8_t>
-{
-    SerDes::Deserializer d{bytes};
-    return d.Deserialize<std::vector<uint8_t>>();
-}
+// The CANoe-side encoders, decoders and RpcSpec builder are shared with the
+// other integration tests; see CanoeWire.hpp for why they are hand-written
+// rather than taken from VhalSimpleApi.hpp.
+using test::EmptyReq;
+using test::GetReq;
+using test::MakeClientSpec;
+using test::ParseBytes;
+using test::ParseFloat;
+using test::ParseInt32;
+using test::ParseInt64;
+using test::ParseString;
+using test::SetBytesReq;
+using test::SetFloatReq;
+using test::SetInt32Req;
+using test::SetInt64Req;
+using test::SetStringReq;
 
 class AdapterRpcTest : public ::testing::Test
 {

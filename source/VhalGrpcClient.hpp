@@ -33,6 +33,11 @@ class VhalGrpcClient : public IVhalClient
 public:
     VhalGrpcClient(const std::string& uri);
 
+    //! Take a ready-made channel instead of dialling a URI. The dependency
+    //! injection seam the tests use: a fake VehicleServer bound to gRPC's
+    //! in-process transport needs no socket, no port and no ValidateUri.
+    explicit VhalGrpcClient(std::shared_ptr<grpc::Channel> channel);
+
     auto GetProperty(std::string_view name) -> std::optional<CarProperty> override;
     auto GetProperties(std::vector<std::string_view> nameList) -> std::vector<std::optional<CarProperty>> override;
     auto SetProperty(const CarProperty& property) -> bool override;

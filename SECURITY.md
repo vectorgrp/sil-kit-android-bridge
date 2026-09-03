@@ -5,7 +5,7 @@
 
 ## Project status
 
-`sil-kit-android-bridge` is a **proof of concept**. It is not hardened, it has
+`sil-kit-android-bridge` is a **public preview**. It is not hardened, it has
 not been security reviewed, and it should not be exposed to untrusted networks or
 run in a production environment. See the note at the top of
 [README.md](README.md).
@@ -42,7 +42,7 @@ Please include:
 - a reproduction, ideally against `--mock` so no Android device is needed.
 
 We will acknowledge your report and tell you whether we consider it in scope.
-Because this is a proof of concept maintained alongside other work, we cannot
+Because this is a preview maintained alongside other work, we cannot
 commit to a fix timeline. We will be straight with you about what we intend to
 do.
 
@@ -57,4 +57,4 @@ itself (report those to that project), in gRPC, Protobuf, OpenSSL or the other
 dependencies listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and in
 the vendored AOSP code (report those to AOSP). Also out of scope: the fact that
 the bridge performs no authentication and no transport encryption on either side.
-That is a known and documented property of a proof of concept, not a finding.
+That is a known and documented property of this preview, not a finding.

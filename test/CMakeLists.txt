@@ -81,6 +81,46 @@ target_include_directories(ITest_VhalSilKitAdapter PRIVATE ${SOURCE_DIR} ${CMAKE
 skab_copy_runtime_dlls(ITest_VhalSilKitAdapter)
 gtest_discover_tests(ITest_VhalSilKitAdapter)
 
+# ITest_VhalGrpcClient: drives the real VhalGrpcClient against a programmable
+# fake VehicleServer (FakeVehicleServer.hpp) over gRPC's in-process transport.
+# This is the coverage Test_VhalGrpcClient cannot provide: that target stops at
+# VhalGrpcConvert, the pure translation, while everything here needs a stub.
+add_executable(ITest_VhalGrpcClient
+    ITest_VhalGrpcClient.cpp
+    ${SOURCE_DIR}/VhalGrpcClient.cpp
+    ${SOURCE_DIR}/VhalGrpcConvert.cpp
+)
+target_link_libraries(ITest_VhalGrpcClient
+    PRIVATE
+        GTest::gtest_main
+        proto_lib
+        spdlog::spdlog
+)
+target_include_directories(ITest_VhalGrpcClient PRIVATE ${SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+skab_copy_runtime_dlls(ITest_VhalGrpcClient)
+gtest_discover_tests(ITest_VhalGrpcClient)
+
+# ITest_VhalBridgeGrpc: the whole chain a CANoe test bench exercises, minus
+# CANoe and minus the device - faked consumer over SIL Kit -> VhalSilKitAdapter
+# -> VhalGrpcClient -> fake VHAL over gRPC. Deliberately thin: it proves the
+# seams line up, while ITest_VhalGrpcClient carries the depth.
+add_executable(ITest_VhalBridgeGrpc
+    ITest_VhalBridgeGrpc.cpp
+    ${SOURCE_DIR}/VhalGrpcClient.cpp
+    ${SOURCE_DIR}/VhalGrpcConvert.cpp
+    ${SOURCE_DIR}/VhalSimpleApi.cpp
+)
+target_link_libraries(ITest_VhalBridgeGrpc
+    PRIVATE
+        GTest::gtest_main
+        proto_lib
+        SilKit::SilKit
+        spdlog::spdlog
+)
+target_include_directories(ITest_VhalBridgeGrpc PRIVATE ${SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+skab_copy_runtime_dlls(ITest_VhalBridgeGrpc)
+gtest_discover_tests(ITest_VhalBridgeGrpc)
+
 # ---- Manual developer tools (built, but NOT registered with CTest) ----
 # grpc-client-test: connects to a real VHAL gRPC server (pass the socket/URI as
 # argv[1]) and exercises VhalGrpcClient. Run by hand; intentionally has no
