@@ -111,11 +111,17 @@ int VhalGetString(char name[], char value[])
 
 // ---- bytes ----
 
-// UNVERIFIED: the vCDL side uses the primitive sequence type "bytes"; how CAPL
-// marshals that into CallAsync has not been confirmed here. A char array is the
-// documented CAPL representation for byte data in distributed-object bindings,
-// so that is what these two use. Adjust if your CANoe disagrees, and please
-// report what it accepts.
+// The read direction is confirmed: VhalGetBytes against --mock renders the
+// seeded DE AD BE EF correctly in the CANoe trace window, which also settles
+// that sil-adapter-builder and SIL Kit SerDes agree on the encoding of the vCDL
+// "bytes" type - a uint32 length prefix followed by raw bytes.
+//
+// The write direction is not confirmed. A char array is the documented CAPL
+// representation for byte data in distributed-object bindings, so that is what
+// VhalSetBytes passes; whether CallAsync marshals it as the vCDL "bytes"
+// parameter expects has not been exercised. Note the char array is also
+// NUL-terminated, so a payload containing 0x00 is cut short here - not in the
+// bridge. Please report what your CANoe does.
 int VhalSetBytes(char name[], char value[])
 {
     callcontext properties.SetBytes cc;

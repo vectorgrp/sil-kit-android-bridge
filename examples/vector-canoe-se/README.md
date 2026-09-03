@@ -119,18 +119,19 @@ a type mismatch. Two consequences worth knowing:
 
 ## Caveats
 
-- **The `bytes` methods are the least-proven part of this contract.** The vCDL
-  loads in CANoe, so the declarations themselves are settled: `bytes` is a
-  primitive sequence type, valid as both a parameter and a return type. (There is
-  no `[]` suffix form in the language - square brackets are only ever attributes -
-  so `uint8[]` and `char[]` do not parse.) Two things one level down are still
-  unconfirmed: how CAPL marshals a `bytes` parameter into `CallAsync`, and whether
-  `sil-adapter-builder` encodes it the way SIL Kit SerDes does (a `uint32` length
-  prefix followed by raw bytes, byte-identical to a `string`). The CAPL wrappers
-  below use a char array, the documented CAPL representation for byte data. If
-  either turns out wrong, delete the two `Bytes` methods from the vCDL and the two
-  wrappers from `VhalUtils.cin`: the bridge serves methods no vCDL declares
-  without complaining, so the other nine are unaffected. Please report what works.
+- **`GetBytes` is confirmed; `SetBytes` is not.** Reading
+  `STORAGE_ENCRYPTION_BINDING_SEED` from CANoe against `--mock` renders the seeded
+  `DE AD BE EF` correctly in the trace window. That settles the part that was
+  hardest to reason about: `sil-adapter-builder` and SIL Kit SerDes agree on how
+  the vCDL `bytes` type goes on the wire - a `uint32` length prefix followed by
+  raw bytes, byte-identical to a `string`. (For the record, `bytes` is a primitive
+  sequence type; there is no `[]` suffix form in the language, so neither
+  `uint8[]` nor `char[]` parses.) What is still unexercised is the write
+  direction - whether CAPL marshals a char array into a `bytes` parameter the way
+  `CallAsync` expects. That is step `6.2` of `CheckAllPropertyTypes`. If it fails,
+  delete the two `Bytes` methods from the vCDL and the two wrappers from
+  `VhalUtils.cin`: the bridge serves methods no vCDL declares without complaining,
+  so the other nine are unaffected.
 - The CAPL helpers for `string` and `bytes` copy the result into a caller-supplied
   buffer with `strncpy`; size the buffer for the properties you read. For `bytes`
   that also means a payload containing `0x00` is cut short - the helpers carry

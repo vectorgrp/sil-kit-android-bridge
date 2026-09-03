@@ -172,12 +172,13 @@ export testcase CheckAllPropertyTypes()
     }
 
     // ---- bytes : STORAGE_ENCRYPTION_BINDING_SEED, seeded DE AD BE EF ----
-    // The least-proven family; see the caveats in this directory's README.
+    // Reading is confirmed working: the seeded DE AD BE EF renders correctly in
+    // the CANoe trace window. Writing (6.2) is the part still unexercised.
     status = VhalGetBytes("STORAGE_ENCRYPTION_BINDING_SEED", blob);
     if (status > 0) {
         testStepPass("6.1", "bytes read returned status=%d", status);
     } else {
-        testStepFail("6.1", "bytes read failed: status=%d (CAPL marshalling of 'bytes' is unverified)", status);
+        testStepFail("6.1", "bytes read failed: status=%d", status);
     }
     // Printable ASCII on purpose: the CAPL helpers carry bytes in a char array,
     // so a value containing 0x00 would be cut short by the string copy. Binary
