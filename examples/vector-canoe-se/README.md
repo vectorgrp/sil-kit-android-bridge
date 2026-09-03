@@ -18,7 +18,7 @@ you do not have CANoe.
 |------|------|
 | `VhalSimple.vcdl` | The interface contract. Declares namespace `VhalSimple`, the `IVhalSimple` interface with the ten property methods plus `GetApiVersion`, and the object `properties`. |
 | `VhalUtils.cin` | CAPL helpers wrapping each method in an async call plus `testWaitForAnswer`: `VhalGetInt32` / `VhalSetInt32` and the same pair for `Int64`, `Float`, `String` and `Bytes`, plus `VhalGetApiVersion`. |
-| `VhalTest.can` | Two CAPL test cases. `CheckEvBatteryProperties` drives `EV_BATTERY_LEVEL` through a ramp; `CheckAllPropertyTypes` checks the API version and then, for each of the five types, reads the seeded value (step `x.1`) and does a write/read-back (step `x.2`), so one run shows exactly which method family fails. |
+| `VhalTest.can` | Three CAPL test cases. `CheckEvBatteryProperties` drives `EV_BATTERY_LEVEL` through a ramp. `CheckAllPropertyTypes` checks the API version and then, for each of the five types, that the read answers (step `x.1`) and that a write round-trips (step `x.2`); it asserts nothing about which values a property holds, so it passes against `--mock` and against a real device. `CheckMockSeedValues` asserts the exact `--mock` seed values and is therefore not in the default test tree. |
 | `venvironment.yaml` | Virtual environment: binds `VhalSimple.vcdl` and sets the SIL Kit participant name to `canoe-vhal-test`. |
 | `VhalTest.vtestunit.yaml` | Test unit: `VhalTest.can` plus the test tree. |
 | `VhalTest.vtesttree.yaml` | Test tree: the single CAPL test case to execute. |
@@ -52,6 +52,26 @@ not part of this repository.
 fakes the CANoe side with a plain SIL Kit participant using the same function
 names and labels, so the contract is regression-tested without CANoe. The
 `silkit-client` tool does the same thing interactively.
+
+## Running against a real device
+
+`CheckAllPropertyTypes` is written to pass against a live VHAL as well as
+`--mock`. It never asserts what a property *contains* - a real vehicle reports
+whatever it reports - only that each method family answers and that a write is
+either reflected on read-back or leaves the value untouched. That second case is
+reported as a pass with a note, because a static or sensor-backed property being
+read-only is a property of the vehicle, not a fault in the bridge.
+
+Two things to expect against real hardware that are not failures:
+
+- `INFO_VIN` and other `INFO_*` properties are static, so step `4.2` will usually
+  report "unchanged".
+- `STORAGE_ENCRYPTION_BINDING_SEED` is not implemented by every VHAL. The bridge
+  logs `Property ... not found, or the VHAL refused the read` and answers with an
+  empty value; step `5.2` reports "unsupported" rather than failing.
+
+Use `CheckMockSeedValues` (add it to `VhalTest.vtesttree.yaml`) only when the
+bridge is running with `--mock`.
 
 ## What `--mock` serves
 

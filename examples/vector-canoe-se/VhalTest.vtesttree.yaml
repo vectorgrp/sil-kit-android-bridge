@@ -4,3 +4,7 @@ version: 2.0.0
 test-tree:
   - capl-test-case: CheckEvBatteryProperties
   - capl-test-case: CheckAllPropertyTypes
+# CheckMockSeedValues is defined in VhalTest.can but deliberately not listed: it
+# asserts the exact values --mock seeds, so it only passes against the bridge
+# started with --mock. Add it here when validating the mock.
+#  - capl-test-case: CheckMockSeedValues

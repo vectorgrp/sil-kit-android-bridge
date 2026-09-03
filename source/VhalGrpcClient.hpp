@@ -135,7 +135,20 @@ public:
 
         auto type = getPropertyType(prop_id);
 
-        if constexpr (std::is_floating_point_v<T>)
+        // A vector<uint8_t> is how CarProperty models a BYTES property, and the VHAL
+        // carries those in byte_values - not in int32_values. This branch has to come
+        // before the integral one below, which would otherwise claim uint8_t and
+        // reject every BYTES write with "expects BYTES, not INT32_VEC".
+        if constexpr (std::is_same_v<T, uint8_t>)
+        {
+            if (type != VehiclePropertyType::BYTES)
+            {
+                throw VhalClientError("SetValues: property " + std::string(VehicleProperty_GetNameById(prop_id))
+                                      + " expects " + std::string(VehiclePropertyType_Name(type)) + ", not BYTES");
+            }
+            prop_value->set_byte_values(std::string(values.begin(), values.end()));
+        }
+        else if constexpr (std::is_floating_point_v<T>)
         {
             if (type != VehiclePropertyType::FLOAT_VEC && type != VehiclePropertyType::FLOAT)
             {

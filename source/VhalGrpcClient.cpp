@@ -1,5 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Vector Informatik GmbH
 // SPDX-License-Identifier: MIT
+#include <variant>
+
 #include "VhalGrpcClient.hpp"
 #include "VhalGrpcConvert.hpp"
 #include "Print.hpp"
@@ -43,20 +45,30 @@ auto VhalGrpcClient::SetProperty(const CarProperty& cp) -> bool
         return false;
     }
 
-    return std::visit(
-        [this, id](auto&& arg) -> bool {
-            using T = std::decay_t<decltype(arg)>;
-            if constexpr (std::is_same_v<T, std::monostate>)
-            {
-                return false;
-            }
-            else
-            {
-                SetValues(id, arg);
-                return true;
-            }
-        },
-        cp.value);
+    if (std::holds_alternative<std::monostate>(cp.value))
+    {
+        return false;
+    }
+
+    // The type checking and protobuf-field selection live in VhalGrpcConvert, where
+    // they are unit tested; this function only moves the bytes.
+    VehiclePropValueRequests request;
+    auto* req = request.add_requests();
+    req->set_request_id(1);
+    *req->mutable_value() = VhalConvert::ToPropValue(id, cp.value);
+
+    SetValueResults response;
+    grpc::ClientContext context;
+    grpc::Status status = stub_->SetValues(&context, request, &response);
+    if (!status.ok())
+    {
+        throw VhalClientError("SetValues failed: " + status.error_message());
+    }
+    if (auto err = VhalConvert::FirstSetError(response))
+    {
+        throw VhalClientError("SetValues on property " + cp.name + ": " + *err);
+    }
+    return true;
 }
 
 auto VhalGrpcClient::AddPropertyChangedHandler(std::string_view, PropertyChangedHandler) -> int

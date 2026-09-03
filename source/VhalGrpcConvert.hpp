@@ -54,6 +54,14 @@ auto ToCarProperty(const android::hardware::automotive::vehicle::proto::VehicleP
 auto ToCarProperty(const android::hardware::automotive::vehicle::proto::GetValueResult& result)
     -> std::optional<CarProperty>;
 
+//! The inverse of ToCarProperty: build the VehiclePropValue for a write, checking
+//! the value against the type AOSP declares for the property id. Throws
+//! VhalClientError on a mismatch. Keeping this next to ToCarProperty is deliberate
+//! - the two have to agree on which protobuf field carries which CarProperty arm,
+//! and a BYTES value written into int32_values was exactly how that drifted before.
+auto ToPropValue(int32_t propId, const CarProperty::Value& value)
+    -> android::hardware::automotive::vehicle::proto::VehiclePropValue;
+
 //! nullopt when every write succeeded; otherwise a message naming the first
 //! offending StatusCode, ready to put in a VhalClientError.
 auto FirstSetError(const android::hardware::automotive::vehicle::proto::SetValueResults& results)

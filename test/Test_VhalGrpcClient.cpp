@@ -160,6 +160,83 @@ TEST(VhalConvertValue, UnknownPropertyTypeYieldsNullopt)
     EXPECT_FALSE(VhalConvert::ToCarProperty(v).has_value());
 }
 
+// ------------------------------------------- CarProperty -> VehiclePropValue
+
+// The regression guard for the bug found against live Cuttlefish: a BYTES value
+// was dispatched through the integral-vector branch and rejected with "expects
+// BYTES, not INT32_VEC", so no byte property could ever be written to a device.
+TEST(VhalConvertWrite, BytesGoIntoByteValuesNotInt32Values)
+{
+    const std::vector<uint8_t> seed{0xDE, 0xAD, 0xBE, 0xEF};
+    const auto v = VhalConvert::ToPropValue(IdOf(kBytesProp), CarProperty::Value{seed});
+
+    EXPECT_EQ(v.prop(), IdOf(kBytesProp));
+    EXPECT_EQ(v.int32_values_size(), 0) << "a BYTES value must not land in int32_values";
+    ASSERT_EQ(v.byte_values().size(), seed.size());
+    EXPECT_EQ(std::vector<uint8_t>(v.byte_values().begin(), v.byte_values().end()), seed);
+}
+
+// Every arm has to reach the protobuf field ToCarProperty reads back, or a write
+// and the following read disagree.
+TEST(VhalConvertWrite, EachTypeUsesTheFieldItsReaderExpects)
+{
+    {
+        const auto v = VhalConvert::ToPropValue(IdOf(kInt32Prop), CarProperty::Value{int32_t{2026}});
+        ASSERT_EQ(v.int32_values_size(), 1);
+        EXPECT_EQ(v.int32_values(0), 2026);
+    }
+    {
+        const auto v = VhalConvert::ToPropValue(IdOf(kInt64Prop), CarProperty::Value{int64_t{1767225600000}});
+        ASSERT_EQ(v.int64_values_size(), 1);
+        EXPECT_EQ(v.int64_values(0), int64_t{1767225600000});
+    }
+    {
+        const auto v = VhalConvert::ToPropValue(IdOf(kFloatProp), CarProperty::Value{88.5f});
+        ASSERT_EQ(v.float_values_size(), 1);
+        EXPECT_FLOAT_EQ(v.float_values(0), 88.5f);
+    }
+    {
+        const auto v = VhalConvert::ToPropValue(IdOf(kStringProp), CarProperty::Value{std::string{"VIN"}});
+        EXPECT_EQ(v.string_value(), "VIN");
+    }
+    // AOSP BOOLEAN travels as int32.
+    {
+        const auto v = VhalConvert::ToPropValue(IdOf(kBooleanProp), CarProperty::Value{int32_t{1}});
+        ASSERT_EQ(v.int32_values_size(), 1);
+        EXPECT_EQ(v.int32_values(0), 1);
+    }
+}
+
+// A write and a read of the same property must agree on the field, which is the
+// invariant the original bug broke.
+TEST(VhalConvertWrite, WriteThenReadRoundTripsEveryType)
+{
+    auto roundTrip = [](const char* name, const CarProperty::Value& value) {
+        const auto prop = VhalConvert::ToCarProperty(VhalConvert::ToPropValue(IdOf(name), value));
+        ASSERT_TRUE(prop.has_value()) << name;
+        EXPECT_TRUE(prop->value == value) << name;
+    };
+    roundTrip(kInt32Prop, CarProperty::Value{int32_t{2026}});
+    roundTrip(kInt64Prop, CarProperty::Value{int64_t{1767225600000}});
+    roundTrip(kFloatProp, CarProperty::Value{88.5f});
+    roundTrip(kStringProp, CarProperty::Value{std::string{"WVWZZZ1JZXW000001"}});
+    roundTrip(kBytesProp, CarProperty::Value{std::vector<uint8_t>{0xDE, 0xAD, 0xBE, 0xEF}});
+    roundTrip(kBooleanProp, CarProperty::Value{int32_t{1}});
+}
+
+TEST(VhalConvertWrite, WrongTypedWriteThrowsNamingBothTypes)
+{
+    // int32 into a FLOAT property
+    EXPECT_THROW(VhalConvert::ToPropValue(IdOf(kFloatProp), CarProperty::Value{int32_t{1}}), VhalClientError);
+    // bytes into an INT32 property
+    EXPECT_THROW(VhalConvert::ToPropValue(IdOf(kInt32Prop), CarProperty::Value{std::vector<uint8_t>{1, 2}}),
+                 VhalClientError);
+    // string into a BYTES property
+    EXPECT_THROW(VhalConvert::ToPropValue(IdOf(kBytesProp), CarProperty::Value{std::string{"x"}}), VhalClientError);
+    // an empty variant is never writable
+    EXPECT_THROW(VhalConvert::ToPropValue(IdOf(kInt32Prop), CarProperty::Value{}), VhalClientError);
+}
+
 // ------------------------------------------------- GetValueResult status gate
 
 TEST(VhalConvertReadStatus, OkResultConverts)
