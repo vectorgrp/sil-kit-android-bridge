@@ -215,7 +215,7 @@ function(_skab_check_build_type)
         "binaries for gRPC and its dependencies, so this configure would compile the entire "
         "dependency tree from source (about an hour). Use the 'relwithdebinfo' preset instead - "
         "it carries full debug symbols and is what CI builds. If you really do need debug builds "
-        "of the dependencies themselves, re-run with -DSK_ALLOW_WINDOWS_DEBUG=ON.")
+        "of the dependencies themselves, re-run with -DSKAB_ALLOW_WINDOWS_DEBUG=ON.")
 endfunction()
 
 # Runs `conan install` and prepends the generator output directory to

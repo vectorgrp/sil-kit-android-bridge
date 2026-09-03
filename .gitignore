@@ -4,3 +4,6 @@ CMakeUserPresets.json
 .venv
 .conan2
 __pycache__
+sil-kit-android-bridge-*-*-*.zip
+sil-kit-android-bridge-*-*-*/
+design/

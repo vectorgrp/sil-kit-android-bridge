@@ -11,6 +11,7 @@ project does **not** relicense these components; each retains its original licen
 |-----------|----------|----------|---------|
 | AOSP Vehicle HAL (VHAL) | `source/third_party/android-16.0.0_r3/` | [AOSP `hardware/interfaces/automotive/vehicle`](https://android.googlesource.com/platform/hardware/interfaces/) (tag `android-16.0.0_r3`) | Apache-2.0 |
 | AOSP VHAL property enum | `source/VhalProperty.hpp` | Generated from AOSP `VehicleProperty.aidl` | Apache-2.0 |
+| SIL Kit `CommandlineParser` | `source/CommandlineParser.hpp` | [vectorgrp/sil-kit](https://github.com/vectorgrp/sil-kit) (`Utilities/`) | MIT |
 | spdlog | `source/third_party/spdlog/` | [gabime/spdlog](https://github.com/gabime/spdlog) v1.17.0 | MIT |
 | fmt (bundled by spdlog) | `source/third_party/spdlog/include/spdlog/fmt/bundled/` | [fmtlib/fmt](https://github.com/fmtlib/fmt) | MIT |
 
@@ -26,7 +27,12 @@ and attribution notice is provided in:
 A copy of the Apache License, Version 2.0 is available at
 <http://www.apache.org/licenses/LICENSE-2.0>.
 
-### MIT (spdlog, fmt)
+### MIT (SIL Kit CommandlineParser, spdlog, fmt)
+
+- SIL Kit `CommandlineParser`: `Copyright (c) Vector Informatik GmbH.` Copied
+  verbatim from the SIL Kit repository, same copyright holder and same MIT license
+  as this project, so it is listed here for provenance rather than because it adds
+  a licensing obligation. License text: [LICENSE.md](LICENSE.md).
 
 - spdlog: `Copyright (c) 2016 - present, Gabi Melman and spdlog contributors.`
   License text: `source/third_party/spdlog/LICENSE`.

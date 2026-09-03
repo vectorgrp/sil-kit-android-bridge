@@ -1,4 +1,6 @@
 version: 4.0.0
+# SPDX-FileCopyrightText: 2026 Vector Informatik GmbH
+# SPDX-License-Identifier: MIT
 
 datasources:
   - file-path: VhalProperties.vcdl

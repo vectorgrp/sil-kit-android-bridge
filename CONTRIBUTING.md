@@ -44,5 +44,7 @@ not be merged.
 
 1. Fork the repository and create a topic branch.
 2. Add or update tests that capture the new behavior.
-3. Ensure the project builds and the tests pass (`cmake --preset debug`, then build and `ctest`).
+3. Ensure the project builds and the tests pass: configure with `cmake --preset debug`
+   on Linux or `cmake --preset relwithdebinfo` on Windows (the `debug` preset is
+   Linux-only, see the README), then build and run `ctest --preset <same>`.
 4. Open a pull request describing the change and referencing any related issue.

@@ -26,17 +26,29 @@ static auto ConvertToCarProperty(const VehiclePropValue& value) -> std::optional
 {
     auto name = VehicleProperty_GetNameById(value.prop());
     auto type = getPropertyType(value.prop());
+    // A result that carries no value at all is normal (a NOT_AVAILABLE status, a
+    // property the VHAL declined to read). Indexing a repeated field that far is
+    // a protobuf CHECK failure in a debug build and an out-of-bounds read in a
+    // release one, so every scalar case is guarded.
     switch (type)
     {
     case VehiclePropertyType::STRING:
         return CarProperty{name, value.string_value()};
     case VehiclePropertyType::BOOLEAN:
+        if (value.int32_values_size() == 0)
+            return std::nullopt;
         return CarProperty{name, value.int32_values(0) != 0};
     case VehiclePropertyType::INT32:
+        if (value.int32_values_size() == 0)
+            return std::nullopt;
         return CarProperty{name, value.int32_values(0)};
     case VehiclePropertyType::INT64:
+        if (value.int64_values_size() == 0)
+            return std::nullopt;
         return CarProperty{name, value.int64_values(0)};
     case VehiclePropertyType::FLOAT:
+        if (value.float_values_size() == 0)
+            return std::nullopt;
         return CarProperty{name, value.float_values(0)};
     case VehiclePropertyType::BYTES:
         return CarProperty{name, std::vector<uint8_t>(value.byte_values().begin(), value.byte_values().end())};

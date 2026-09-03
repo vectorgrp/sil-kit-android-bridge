@@ -1,4 +1,6 @@
 /*@!Encoding:1252*/
+// SPDX-FileCopyrightText: 2026 Vector Informatik GmbH
+// SPDX-License-Identifier: MIT
 includes 
 {
   #include "VhalUtils.cin"
@@ -11,39 +13,39 @@ export testcase CheckEvBatteryProperties()
     float propertyValueFloat = -1.0;
 
     Write("Setting initial default values for properties");
-    status = SetProperty("EV_CHARGE_PORT_CONNECTED", 0);
-    status = SetPropertyFloat("EV_CURRENT_BATTERY_CAPACITY", 10); //kWh
-    status = SetPropertyFloat("EV_BATTERY_LEVEL", 0.0);
-    status = SetPropertyFloat("RANGE_REMAINING", 0);
+    status = VhalSetProperty("EV_CHARGE_PORT_CONNECTED", 0);
+    status = VhalSetPropertyFloat("EV_CURRENT_BATTERY_CAPACITY", 10); //kWh
+    status = VhalSetPropertyFloat("EV_BATTERY_LEVEL", 0.0);
+    status = VhalSetPropertyFloat("RANGE_REMAINING", 0);
     TestWaitForTimeout(1000);
 
     Write("Setting EV_CHARGE_PORT_CONNECTED to 1 (connected)");
-    status = SetProperty("EV_CHARGE_PORT_CONNECTED", 1);
-    status = GetProperty("EV_CHARGE_PORT_CONNECTED", propertyValue);
+    status = VhalSetProperty("EV_CHARGE_PORT_CONNECTED", 1);
+    status = VhalGetProperty("EV_CHARGE_PORT_CONNECTED", propertyValue);
 
     if (propertyValue == 1) {
-        testStepPass("1.0", "EV_CHARGE_PORT_CONNECTED is 0 as expected");
+        testStepPass("1.0", "EV_CHARGE_PORT_CONNECTED is 1 as expected");
     } else {
         testStepFail("1.0", "EV_CHARGE_PORT_CONNECTED expected 1, got %d", propertyValue);
     }
 
-    Write("Setting EV_BATTERY_LEVEL to 1000.0");
-    status = SetPropertyFloat("EV_BATTERY_LEVEL", 10000.0);
-    TestWaitForTimeout(1000);
-
-    Write("Setting EV_BATTERY_LEVEL to 3000.0");
-    status = SetPropertyFloat("EV_BATTERY_LEVEL", 30000.0);
-    TestWaitForTimeout(1000);
-
-    Write("Setting EV_BATTERY_LEVEL to 8000.0");
-    status = SetPropertyFloat("EV_BATTERY_LEVEL", 80000.0);
-    TestWaitForTimeout(1000);
-
     Write("Setting EV_BATTERY_LEVEL to 10000.0");
-    status = SetPropertyFloat("EV_BATTERY_LEVEL", 100000.0);
+    status = VhalSetPropertyFloat("EV_BATTERY_LEVEL", 10000.0);
     TestWaitForTimeout(1000);
 
-    status = GetPropertyFloat("EV_BATTERY_LEVEL", propertyValueFloat);
+    Write("Setting EV_BATTERY_LEVEL to 30000.0");
+    status = VhalSetPropertyFloat("EV_BATTERY_LEVEL", 30000.0);
+    TestWaitForTimeout(1000);
+
+    Write("Setting EV_BATTERY_LEVEL to 80000.0");
+    status = VhalSetPropertyFloat("EV_BATTERY_LEVEL", 80000.0);
+    TestWaitForTimeout(1000);
+
+    Write("Setting EV_BATTERY_LEVEL to 100000.0");
+    status = VhalSetPropertyFloat("EV_BATTERY_LEVEL", 100000.0);
+    TestWaitForTimeout(1000);
+
+    status = VhalGetPropertyFloat("EV_BATTERY_LEVEL", propertyValueFloat);
     if (propertyValueFloat == 100000.0 && status > 0) {
         testStepPass("1.0", "EV_BATTERY_LEVEL is 100000.0 as expected");
     } else {
@@ -51,11 +53,11 @@ export testcase CheckEvBatteryProperties()
         testStepFail("1.0", "EV_BATTERY_LEVEL expected 100000.0, got %f", propertyValueFloat);
     }
 
-    //GetPropertyFloat("NON_EXISTING", propertyValueFloat);
+    //VhalGetPropertyFloat("NON_EXISTING", propertyValueFloat);
 
     testWaitForTimeout(3000);
-    status = SetProperty("EV_CHARGE_PORT_CONNECTED", 0);
-    status = SetPropertyFloat("RANGE_REMAINING", 1337);
+    status = VhalSetProperty("EV_CHARGE_PORT_CONNECTED", 0);
+    status = VhalSetPropertyFloat("RANGE_REMAINING", 1337);
 
     testStepPass("1.0", "Test completed");
 }

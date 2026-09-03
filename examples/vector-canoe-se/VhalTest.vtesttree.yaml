@@ -1,3 +1,5 @@
 version: 2.0.0
+# SPDX-FileCopyrightText: 2026 Vector Informatik GmbH
+# SPDX-License-Identifier: MIT
 test-tree:
   - capl-test-case: CheckEvBatteryProperties

@@ -5,8 +5,10 @@
 // drives the real VhalSilKitAdapter (backed by a VhalMockClient) over a live,
 // in-process SIL Kit registry. This verifies the GetProperty/SetProperty
 // round-trips through the bridge and locks in the wire/label/function-name
-// contract that CANoe relies on. SetUp() ends with a discovery barrier, so every
-// test below runs against a settled system and asserts on logic alone.
+// contract that CANoe relies on. SetUp() creates every RpcClient before starting
+// the consumer lifecycle - controllers created afterwards can miss SIL Kit's
+// service discovery round - and ends with a discovery barrier, so every test
+// below runs against a settled system and asserts on logic alone.
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -107,13 +109,19 @@ protected:
         badClient_ = canoe_->AddRpcClient("wrong-function-name-probe",
                                           MakeClientSpec("VhalSilkit::vhalProperties.GetProperty"));
 
+        // Every controller must exist before the lifecycle starts, so the clients
+        // above are created first and the lifecycle is started here.
+        canoe_->Start();
+
         // Past this barrier, ServerNotReachable is a contract violation rather
         // than a slow runner.
         ASSERT_TRUE(canoe_->WaitUntilConnected("VhalBridge"))
             << "the adapter participant never joined the session";
         const auto probe = canoe_->AwaitServerReachable(getClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
         ASSERT_EQ(probe.status, Rpc::RpcCallStatus::Success)
-            << "the adapter's RPC servers were never matched by a correctly specified client";
+            << (probe.harnessTimeout ? "the probe call never completed at all (harness watchdog)"
+                                     : "the adapter's RPC servers were never matched by a correctly "
+                                       "specified client");
     }
 
     void TearDown() override

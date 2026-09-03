@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <chrono>
 #include <future>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #include "silkit/SilKit.hpp"
@@ -49,6 +51,10 @@ auto CleanLogLevel(const std::string& logLevel)
 class VhalSilKitAdapter
 {
 public:
+    // Hang guard for Shutdown(). Far beyond any plausible stop duration; it is
+    // never a threshold a healthy shutdown approaches.
+    static constexpr std::chrono::seconds kShutdownWatchdog{60};
+
     VhalSilKitAdapter() = default;
     ~VhalSilKitAdapter() = default;
 
@@ -107,6 +113,7 @@ private:
     SilKit::Services::Orchestration::ILifecycleService* lifecycle_{nullptr};
     std::future<SilKit::Services::Orchestration::ParticipantState> finalState_;
     SilKit::Services::Logging::ILogger* logger_{nullptr};
+    bool stopRequested_{false};
 
     std::string virtualNetwork_{"Default"};
     std::string namespace_{"VhalSilkit"};
@@ -184,7 +191,7 @@ Logging:
 
 inline void VhalSilKitAdapter::SetupRpcServer()
 {
-    // GetProperty (int32) — consumed method int32 GetProperty(string name)
+    // GetProperty (int32) - consumed method int32 GetProperty(string name)
     participant_->CreateRpcServer(
         namespace_ + "::" + instance_ + ".GetProperty", MakeRpcSpec("GetProperty"),
         [this](SilKit::Services::Rpc::IRpcServer* srv, const SilKit::Services::Rpc::RpcCallEvent& ev) {
@@ -201,7 +208,7 @@ inline void VhalSilKitAdapter::SetupRpcServer()
         }
     });
 
-    // SetProperty (int32) — consumed method void SetProperty(string name, int32 value)
+    // SetProperty (int32) - consumed method void SetProperty(string name, int32 value)
     participant_->CreateRpcServer(
         namespace_ + "::" + instance_ + ".SetProperty", MakeRpcSpec("SetProperty"),
         [this](SilKit::Services::Rpc::IRpcServer* srv, const SilKit::Services::Rpc::RpcCallEvent& ev) {
@@ -218,7 +225,7 @@ inline void VhalSilKitAdapter::SetupRpcServer()
         srv->SubmitResult(ev.callHandle, VhalSerDes::SerializeVoidResponse());
     });
 
-    // GetPropertyFloat — consumed method float GetPropertyFloat(string name)
+    // GetPropertyFloat - consumed method float GetPropertyFloat(string name)
     participant_->CreateRpcServer(
         namespace_ + "::" + instance_ + ".GetPropertyFloat", MakeRpcSpec("GetPropertyFloat"),
         [this](SilKit::Services::Rpc::IRpcServer* srv, const SilKit::Services::Rpc::RpcCallEvent& ev) {
@@ -235,7 +242,7 @@ inline void VhalSilKitAdapter::SetupRpcServer()
         }
     });
 
-    // SetPropertyFloat — consumed method void SetPropertyFloat(string name, float value)
+    // SetPropertyFloat - consumed method void SetPropertyFloat(string name, float value)
     participant_->CreateRpcServer(
         namespace_ + "::" + instance_ + ".SetPropertyFloat", MakeRpcSpec("SetPropertyFloat"),
         [this](SilKit::Services::Rpc::IRpcServer* srv, const SilKit::Services::Rpc::RpcCallEvent& ev) {
@@ -299,6 +306,14 @@ void VhalSilKitAdapter::SetProperty(const std::string& propertyName, const T& va
 
 inline void VhalSilKitAdapter::Shutdown()
 {
+    // Dropping the participant while the lifecycle is still stopping makes peers
+    // log an ungraceful disconnect. Wait only when a Stop() was actually accepted:
+    // nothing else ever resolves the future, so an unconditional wait would burn
+    // the full watchdog whenever the lifecycle never reached Running.
+    if (stopRequested_ && finalState_.valid())
+    {
+        finalState_.wait_for(kShutdownWatchdog);
+    }
     participant_.reset();
     client_.reset();
 }
@@ -322,8 +337,17 @@ inline void VhalSilKitAdapter::Run()
 
 inline void VhalSilKitAdapter::Stop()
 {
-    if (lifecycle_ && lifecycle_->State() == SilKit::Services::Orchestration::ParticipantState::Running)
+    if (!lifecycle_)
+        return;
+    // Attempting Stop() and letting it refuse is race-free; testing State() first
+    // is not, because the state can change between the check and the call.
+    try
     {
         lifecycle_->Stop("VhalSilKitAdapter::Stop");
+        stopRequested_ = true;
+    }
+    catch (const std::exception&)
+    {
+        // Not in a state that accepts Stop(); there is nothing to wind down.
     }
 }

@@ -5,13 +5,13 @@ Never commit to git without permission.
 Never stage changes, unless asked.
 
 # planning
-keep plans in `design/` folder in the current project.
-plans have a number, e.g. 001-, prefix in file.
-derived plans have additional numbers, e.g. 001.01.
-plans have a name that can be mapped to a feature branch.
+Working notes and implementation plans go in a `design/` folder, which is
+gitignored and stays local. This is a public repository: do not commit planning
+documents to it. What belongs in the repository is the change itself, its tests,
+and a pull request that explains the reasoning.
 
-## SIL Kit conventions
-See @AGENTS-sil-kit.md for the SIL Kit (FOSS) repository layout and stability guarantees.
+If you keep plans there: number them with a `001-` prefix, give derived plans an
+extra number (`001.01-`), and name them so the name maps to a feature branch.
 
 ## Repository layout
 
@@ -32,6 +32,12 @@ See @AGENTS-sil-kit.md for the SIL Kit (FOSS) repository layout and stability gu
   any plausible delay, and never a threshold a passing test approaches. Proving a
   negative ("this must not match") is done by ordering it after a positive that
   establishes the same precondition, not by waiting a while and seeing nothing.
+- SIL Kit participants in tests must create every controller (RPC client/server,
+  publisher/subscriber) *before* `StartLifecycle()`. The first lifecycle state is
+  `ParticipantState::ServicesCreated`; a controller created after that point can
+  miss the service discovery round and then never match its peer, which shows up
+  as a load-dependent flake rather than a clean failure. `test/SkParticipant.hpp`
+  enforces this by throwing from `AddRpcClient()` once `Start()` has run.
 - Unit tests go in files `Test_*` and have no dependency on public APIs.
 - Integration Tests go in files `ITest_*`, they should only depend on the network simulator and public SilKit.{so,dll} APIs
 - SPDX license header on every new file: `// SPDX-FileCopyrightText: 2026 Vector Informatik GmbH` + `// SPDX-License-Identifier: MIT`, update for current year
