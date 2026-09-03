@@ -3,13 +3,14 @@
 //
 // Manual developer tool -- the CANoe-side counterpart of the VHAL bridge. It
 // connects to a running SIL Kit registry and drives the RPC *server* side of the
-// bridge (VhalSilKitAdapter) as a client, using the same function names, labels
-// and wire format that a CANoe/sil-adapter-builder consumer would use.
+// bridge (VhalSilKitAdapter) as a client, speaking the VhalSimple API with the
+// same function names, labels and wire format a CANoe/sil-adapter-builder
+// consumer would use. Everything it sends comes from VhalSimpleApi.hpp, so it
+// cannot drift from the bridge.
 //
-// It sends "PROPERTY=value" assignments (a SetProperty followed by a read-back
-// GetProperty) and bare "PROPERTY" reads. Whether a property travels over the
-// int32 (GetProperty/SetProperty) or float (GetPropertyFloat/SetPropertyFloat)
-// methods is derived from the AOSP property-id type bits (see VhalProperty.hpp).
+// It sends "PROPERTY=value" assignments (a Set followed by a read-back Get) and
+// bare "PROPERTY" reads. Which of the five type families a property travels over
+// is derived from the AOSP property-id type bits (see VhalProperty.hpp).
 //
 // Assignments can be given as arguments:
 //   silkit-client --registry-uri silkit://localhost:8500 \
@@ -20,6 +21,7 @@
 //
 // Not a CTest case (no add_test); built into the top-level binary dir and
 // installed alongside the bridge, but run by hand against a live bridge.
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <future>
@@ -27,9 +29,12 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <regex>
+#include <stdexcept>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include "silkit/SilKit.hpp"
@@ -44,6 +49,7 @@
 #include "CommandlineParser.hpp"
 #include "Print.hpp"
 #include "VhalProperty.hpp"
+#include "VhalSimpleApi.hpp"
 
 namespace
 {
@@ -59,7 +65,7 @@ using android::hardware::automotive::vehicle::VehicleProperty_IdToNameMap;
 
 // ---- RpcSpec: exactly what a CANoe-generated consumer advertises ----
 // The bare method name is the matching key; the three Mandatory labels must match
-// the adapter's MakeRpcSpec (defaults mirror sil-adapter-builder / VhalProperties.vcdl).
+// the adapter's MakeRpcSpec (defaults come from VhalSimpleApi.hpp, which mirrors VhalSimple.vcdl).
 auto MakeClientSpec(const std::string& functionName, const std::string& ns, const std::string& instance,
                     const std::string& vnet) -> Rpc::RpcSpec
 {
@@ -70,65 +76,123 @@ auto MakeClientSpec(const std::string& functionName, const std::string& ns, cons
     return spec;
 }
 
-// ---- Wire helpers: bare fields, exactly as the generated TypeLib serializer emits. ----
+// ---- Wire helpers ----
+// Encoding lives in VhalSimpleApi.hpp, shared with the bridge. Only the request
+// side is expressed here because the API's request encoder is symmetric with the
+// response encoder: both write bare fields inside a zero-width struct frame.
 auto GetReq(const std::string& name) -> std::vector<uint8_t>
 {
     SerDes::Serializer s;
     s.Serialize(name);
     return s.ReleaseBuffer();
 }
-auto SetInt32Req(const std::string& name, int32_t value) -> std::vector<uint8_t>
+template <typename T>
+auto SetReq(const std::string& name, const T& value) -> std::vector<uint8_t>
 {
     SerDes::Serializer s;
     s.Serialize(name);
-    s.Serialize(value, 32);
+    if constexpr (std::is_same_v<T, int32_t>)
+        s.Serialize(value, 32);
+    else if constexpr (std::is_same_v<T, int64_t>)
+        s.Serialize(value, 64);
+    else
+        s.Serialize(value);
     return s.ReleaseBuffer();
 }
-auto SetFloatReq(const std::string& name, float value) -> std::vector<uint8_t>
-{
-    SerDes::Serializer s;
-    s.Serialize(name);
-    s.Serialize(value);
-    return s.ReleaseBuffer();
-}
-auto ParseInt32(const std::vector<uint8_t>& bytes) -> int32_t
+template <typename T>
+auto ParseValue(const std::vector<uint8_t>& bytes) -> T
 {
     SerDes::Deserializer d{bytes};
-    return d.Deserialize<int32_t>(32);
-}
-auto ParseFloat(const std::vector<uint8_t>& bytes) -> float
-{
-    SerDes::Deserializer d{bytes};
-    return d.Deserialize<float>();
+    if constexpr (std::is_same_v<T, int32_t>)
+        return d.Deserialize<int32_t>(32);
+    else if constexpr (std::is_same_v<T, int64_t>)
+        return d.Deserialize<int64_t>(64);
+    else
+        return d.Deserialize<T>();
 }
 
-// The adapter exposes two method families: int32 and float. Every other AOSP type
-// (bool, int32-vec, ...) is carried over the int32 family, so it is the fallback.
+// The five VhalSimple type families. AOSP's vector and MIXED types have no
+// representation in the API, so they fall back to int32 - the same fallback the
+// bridge applies, since CarProperty carries BOOLEAN as int32 too.
 enum class WireType
 {
     Int32,
-    Float
+    Int64,
+    Float,
+    String,
+    Bytes
 };
 
 // Derive the family from the AOSP property-id type bits. For a name that is not in
 // the compile-time table, fall back to inferring from the literal (a '.'/exponent
-// means float), so ad-hoc/vendor names still work.
+// means float, quotes or non-numeric characters mean string), so ad-hoc/vendor
+// names still work.
 auto WireTypeFor(const std::string& name, const std::string& value) -> WireType
 {
     const auto id = VehicleProperty_GetIdByName(name);
     if (id != 0)
     {
-        const auto type = getPropertyType(id);
-        if (type == VehiclePropertyType::FLOAT || type == VehiclePropertyType::FLOAT_VEC)
+        switch (getPropertyType(id))
+        {
+        case VehiclePropertyType::FLOAT:
+        case VehiclePropertyType::FLOAT_VEC:
             return WireType::Float;
-        return WireType::Int32;
+        case VehiclePropertyType::INT64:
+        case VehiclePropertyType::INT64_VEC:
+            return WireType::Int64;
+        case VehiclePropertyType::STRING:
+            return WireType::String;
+        case VehiclePropertyType::BYTES:
+            return WireType::Bytes;
+        default:
+            return WireType::Int32;
+        }
     }
-    const bool looksFloat = value.find_first_of(".eE") != std::string::npos;
-    return looksFloat ? WireType::Float : WireType::Int32;
+    if (value.empty())
+        return WireType::Int32;
+    if (value.find_first_not_of("+-0123456789.eE") != std::string::npos)
+        return WireType::String;
+    if (value.find_first_of(".eE") != std::string::npos)
+        return WireType::Float;
+    return WireType::Int32;
 }
 
 // For a read (no value hint) the family comes from the property table only.
 auto WireTypeFor(const std::string& name) -> WireType { return WireTypeFor(name, std::string{}); }
+
+// Bytes are shown and accepted as hex, since a byte array has no useful literal
+// form on a command line.
+auto HexOf(const std::vector<uint8_t>& bytes) -> std::string
+{
+    static constexpr char kDigits[] = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(bytes.size() * 2);
+    for (auto b : bytes)
+    {
+        out.push_back(kDigits[b >> 4]);
+        out.push_back(kDigits[b & 0x0F]);
+    }
+    return out;
+}
+
+auto BytesFromHex(const std::string& text) -> std::vector<uint8_t>
+{
+    std::string hex;
+    for (char c : text)
+    {
+        if (!std::isspace(static_cast<unsigned char>(c)))
+            hex.push_back(c);
+    }
+    if (hex.size() % 2 != 0)
+        throw std::invalid_argument("hex string must have an even number of digits");
+    std::vector<uint8_t> out;
+    out.reserve(hex.size() / 2);
+    for (size_t i = 0; i < hex.size(); i += 2)
+    {
+        out.push_back(static_cast<uint8_t>(std::stoul(hex.substr(i, 2), nullptr, 16)));
+    }
+    return out;
+}
 
 auto ParseInt32Value(const std::string& s) -> int32_t
 {
@@ -181,16 +245,31 @@ Logging:
       Level: )" + logLevel + "\n");
         participant_ = SilKit::CreateParticipant(config, name, registryUri);
 
+        // Every controller must exist before StartLifecycle(): the first lifecycle
+        // state is ParticipantState::ServicesCreated, and a controller created
+        // after that point can miss the service discovery round and then never
+        // match its server.
+        const std::string path = vnet + "::" + ns + "::" + instance + ".";
+        auto add = [&](const char* method) {
+            return AddClient(path + method, MakeClientSpec(method, ns, instance, vnet));
+        };
+        namespace Method = VhalSimpleApi::Method;
+        getInt_ = add(Method::kGetInt32);
+        setInt_ = add(Method::kSetInt32);
+        getInt64_ = add(Method::kGetInt64);
+        setInt64_ = add(Method::kSetInt64);
+        getFloat_ = add(Method::kGetFloat);
+        setFloat_ = add(Method::kSetFloat);
+        getString_ = add(Method::kGetString);
+        setString_ = add(Method::kSetString);
+        getBytes_ = add(Method::kGetBytes);
+        setBytes_ = add(Method::kSetBytes);
+        version_ = add(Method::kGetApiVersion);
+
         // An autonomous lifecycle keeps this participant a first-class simulation
         // member so RPC discovery/communication with the bridge works standalone.
         lifecycle_ = participant_->CreateLifecycleService({Orchestration::OperationMode::Autonomous});
         finalState_ = lifecycle_->StartLifecycle();
-
-        const std::string path = vnet + "::" + ns + "::" + instance + ".";
-        getInt_ = AddClient(path + "GetProperty", MakeClientSpec("GetProperty", ns, instance, vnet));
-        setInt_ = AddClient(path + "SetProperty", MakeClientSpec("SetProperty", ns, instance, vnet));
-        getFloat_ = AddClient(path + "GetPropertyFloat", MakeClientSpec("GetPropertyFloat", ns, instance, vnet));
-        setFloat_ = AddClient(path + "SetPropertyFloat", MakeClientSpec("SetPropertyFloat", ns, instance, vnet));
     }
 
     ~BridgeClient()
@@ -213,25 +292,48 @@ Logging:
     BridgeClient(const BridgeClient&) = delete;
     BridgeClient& operator=(const BridgeClient&) = delete;
 
+    // Ask the bridge which contract version it serves. Returns nullopt when the
+    // method does not match at all, which is what an older bridge looks like.
+    auto ApiVersion() -> std::optional<int32_t>
+    {
+        const auto res = Call(version_, ToSpan(std::vector<uint8_t>{}));
+        if (res.status != Rpc::RpcCallStatus::Success)
+            return std::nullopt;
+        return ParseValue<int32_t>(res.data);
+    }
+
     // Read a single property and print its value.
     void Get(const std::string& name)
     {
-        if (WireTypeFor(name) == WireType::Float)
-        {
-            const auto res = Call(getFloat_, ToSpan(GetReq(name)));
+        auto report = [&](const CallResult& res, const char* type, auto&& render) {
             if (res.status == Rpc::RpcCallStatus::Success)
-                print("GET  {} = {} (float)", name, ParseFloat(res.data));
+                print("GET  {} = {} ({})", name, render(res.data), type);
             else
                 print("GET  {} FAILED: {}", name, StatusName(res.status));
-        }
-        else
+        };
+        // GetReq returns by value and ToSpan does not own: the buffer has to outlive
+        // every Call below, so it needs a name rather than being a temporary.
+        const auto reqBytes = GetReq(name);
+        const auto req = ToSpan(reqBytes);
+        switch (WireTypeFor(name))
         {
-            const auto res = Call(getInt_, ToSpan(GetReq(name)));
-            if (res.status == Rpc::RpcCallStatus::Success)
-                print("GET  {} = {} (int32)", name, ParseInt32(res.data));
-            else
-                print("GET  {} FAILED: {}", name, StatusName(res.status));
+        case WireType::Float:
+            report(Call(getFloat_, req), "float", [](const auto& b) { return ParseValue<float>(b); });
+            return;
+        case WireType::Int64:
+            report(Call(getInt64_, req), "int64", [](const auto& b) { return ParseValue<int64_t>(b); });
+            return;
+        case WireType::String:
+            report(Call(getString_, req), "string", [](const auto& b) { return ParseValue<std::string>(b); });
+            return;
+        case WireType::Bytes:
+            report(Call(getBytes_, req), "bytes",
+                   [](const auto& b) { return HexOf(ParseValue<std::vector<uint8_t>>(b)); });
+            return;
+        case WireType::Int32:
+            break;
         }
+        report(Call(getInt_, req), "int32", [](const auto& b) { return ParseValue<int32_t>(b); });
     }
 
     // Set a property, then read it back to show the effect.
@@ -239,17 +341,42 @@ Logging:
     {
         try
         {
-            if (WireTypeFor(name, valueStr) == WireType::Float)
+            switch (WireTypeFor(name, valueStr))
+            {
+            case WireType::Float:
             {
                 const float value = std::stof(valueStr);
-                const auto res = Call(setFloat_, ToSpan(SetFloatReq(name, value)));
+                const auto res = Call(setFloat_, ToSpan(SetReq(name, value)));
                 print("SET  {} = {} (float) -> {}", name, value, StatusName(res.status));
+                break;
             }
-            else
+            case WireType::Int64:
+            {
+                const int64_t value = std::stoll(valueStr);
+                const auto res = Call(setInt64_, ToSpan(SetReq(name, value)));
+                print("SET  {} = {} (int64) -> {}", name, value, StatusName(res.status));
+                break;
+            }
+            case WireType::String:
+            {
+                const auto res = Call(setString_, ToSpan(SetReq(name, valueStr)));
+                print("SET  {} = '{}' (string) -> {}", name, valueStr, StatusName(res.status));
+                break;
+            }
+            case WireType::Bytes:
+            {
+                const auto value = BytesFromHex(valueStr);
+                const auto res = Call(setBytes_, ToSpan(SetReq(name, value)));
+                print("SET  {} = {} (bytes) -> {}", name, HexOf(value), StatusName(res.status));
+                break;
+            }
+            case WireType::Int32:
             {
                 const int32_t value = ParseInt32Value(valueStr);
-                const auto res = Call(setInt_, ToSpan(SetInt32Req(name, value)));
+                const auto res = Call(setInt_, ToSpan(SetReq(name, value)));
                 print("SET  {} = {} (int32) -> {}", name, value, StatusName(res.status));
+                break;
+            }
             }
         }
         catch (const std::exception& e)
@@ -290,9 +417,13 @@ private:
         for (;;)
         {
             auto promise = std::make_shared<std::promise<CallResult>>();
-            void* ctx = promise.get();
+            void* ctx;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
+                // Never the promise's address: this loop frees promises as it
+                // retries, and the allocator can hand the same address back, which
+                // would let a late result complete a later call.
+                ctx = reinterpret_cast<void*>(nextContext_++);
                 pending_[ctx] = promise;
             }
 
@@ -325,6 +456,14 @@ private:
     Orchestration::ILifecycleService* lifecycle_{nullptr};
     std::future<Orchestration::ParticipantState> finalState_;
 
+    std::uintptr_t nextContext_{1};
+    Rpc::IRpcClient* getInt64_{nullptr};
+    Rpc::IRpcClient* setInt64_{nullptr};
+    Rpc::IRpcClient* getString_{nullptr};
+    Rpc::IRpcClient* setString_{nullptr};
+    Rpc::IRpcClient* getBytes_{nullptr};
+    Rpc::IRpcClient* setBytes_{nullptr};
+    Rpc::IRpcClient* version_{nullptr};
     Rpc::IRpcClient* getInt_{nullptr};
     Rpc::IRpcClient* setInt_{nullptr};
     Rpc::IRpcClient* getFloat_{nullptr};
@@ -403,12 +542,11 @@ int main(int argc, char** argv) try
     parser.Add<CliParser::Option>(
         "name", "n", "silkit-client", "[--name <participantName>]",
         "-n, --name <participantName>: The participant name. Defaults to 'silkit-client'.");
-    parser.Add<CliParser::Option>("namespace", "N", "VhalSilkit", "[--namespace <ns>]",
-                                  "-N, --namespace <ns>: SIL Kit RPC namespace label. Defaults to 'VhalSilkit'.");
-    parser.Add<CliParser::Option>(
-        "instance", "i", "vhalProperties", "[--instance <instance>]",
-        "-i, --instance <instance>: SIL Kit RPC instance label. Defaults to 'vhalProperties'.");
-    parser.Add<CliParser::Option>("virtual-network", "V", "Default", "[--virtual-network <vnet>]",
+    parser.Add<CliParser::Option>("namespace", "N", VhalSimpleApi::kNamespace, "[--namespace <ns>]",
+                                  "-N, --namespace <ns>: SIL Kit RPC namespace label. Defaults to 'VhalSimple'.");
+    parser.Add<CliParser::Option>("instance", "i", VhalSimpleApi::kInstance, "[--instance <instance>]",
+                                  "-i, --instance <instance>: SIL Kit RPC instance label. Defaults to 'properties'.");
+    parser.Add<CliParser::Option>("virtual-network", "V", VhalSimpleApi::kVirtualNetwork, "[--virtual-network <vnet>]",
                                   "-V, --virtual-network <vnet>: SIL Kit VirtualNetwork label. Defaults to 'Default'.");
     parser.Add<CliParser::Option>(
         "log", "l", "Off", "[--log <level>]",
@@ -451,6 +589,27 @@ int main(int argc, char** argv) try
     print("Connecting participant '{}' to registry '{}' (Namespace={}, Instance={}, VirtualNetwork={})", name,
           registryUri, ns, instance, vnet);
     BridgeClient client{registryUri, name, ns, instance, vnet, logLevel};
+
+    // A version mismatch otherwise shows up only as ServerNotReachable on every
+    // call, which says nothing about why.
+    if (const auto served = client.ApiVersion())
+    {
+        if (*served != VhalSimpleApi::kApiVersion)
+        {
+            print("WARNING: bridge serves VhalSimple API v{}, this client speaks v{}; some methods may not match.",
+                  *served, VhalSimpleApi::kApiVersion);
+        }
+        else
+        {
+            print("Connected to the VhalSimple API v{}.", *served);
+        }
+    }
+    else
+    {
+        print("WARNING: no answer from {}; check --namespace/--instance/--virtual-network and that the bridge is "
+              "running.",
+              VhalSimpleApi::Method::kGetApiVersion);
+    }
 
     const auto assignments = parser.Get<CliParser::PositionalList>("assignments").Values();
     if (!assignments.empty())

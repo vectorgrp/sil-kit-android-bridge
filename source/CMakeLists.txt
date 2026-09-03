@@ -102,6 +102,8 @@ set(EXE_NAME sil-kit-android-bridge)
 add_executable(${EXE_NAME}
     main.cpp
     VhalGrpcClient.cpp
+    VhalGrpcConvert.cpp
+    VhalSimpleApi.cpp
 )
 set_target_properties(${EXE_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}

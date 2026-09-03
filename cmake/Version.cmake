@@ -5,7 +5,7 @@
 # project(); conanfile.py and .github/workflows/ci.yml parse these set() lines
 # with a regex, so keep them plain.
 set(SKAB_VERSION_MAJOR 0)
-set(SKAB_VERSION_MINOR 3)
+set(SKAB_VERSION_MINOR 4)
 set(SKAB_VERSION_PATCH 0)
 
 set(SKAB_VERSION "${SKAB_VERSION_MAJOR}.${SKAB_VERSION_MINOR}.${SKAB_VERSION_PATCH}")

@@ -27,20 +27,40 @@ target_include_directories(Test_VhalMockClient PRIVATE ${SOURCE_DIR})
 skab_copy_runtime_dlls(Test_VhalMockClient)
 gtest_discover_tests(Test_VhalMockClient)
 
-# Test_VhalSilKitSerdes: guards the CANoe-compatible binary wire format produced
-# by VhalSilKitSerdes.hpp. Uses only the header-only SilKit SerDes utilities.
-add_executable(Test_VhalSilKitSerdes
-    Test_VhalSilKitSerdes.cpp
+# Test_VhalSimpleApi: guards the VhalSimple contract - the identity constants that
+# must match VhalSimple.vcdl, and the CANoe-compatible binary wire format. Uses
+# only the SilKit SerDes utilities.
+add_executable(Test_VhalSimpleApi
+    Test_VhalSimpleApi.cpp
+    ${SOURCE_DIR}/VhalSimpleApi.cpp
 )
-target_link_libraries(Test_VhalSilKitSerdes
+target_link_libraries(Test_VhalSimpleApi
     PRIVATE
         GTest::gtest_main
         SilKit::SilKit
         spdlog::spdlog
 )
-target_include_directories(Test_VhalSilKitSerdes PRIVATE ${SOURCE_DIR})
-skab_copy_runtime_dlls(Test_VhalSilKitSerdes)
-gtest_discover_tests(Test_VhalSilKitSerdes)
+target_include_directories(Test_VhalSimpleApi PRIVATE ${SOURCE_DIR})
+skab_copy_runtime_dlls(Test_VhalSimpleApi)
+gtest_discover_tests(Test_VhalSimpleApi)
+
+# Test_VhalGrpcClient: covers the pure VHAL translation layer - URI validation,
+# VehiclePropValue -> CarProperty, and the StatusCode gating on read and write
+# results. VhalGrpcConvert.hpp is deliberately proto-only, so this needs the
+# generated sources but neither a gRPC server nor SIL Kit.
+add_executable(Test_VhalGrpcClient
+    Test_VhalGrpcClient.cpp
+    ${SOURCE_DIR}/VhalGrpcConvert.cpp
+)
+target_link_libraries(Test_VhalGrpcClient
+    PRIVATE
+        GTest::gtest_main
+        proto_lib
+        spdlog::spdlog
+)
+target_include_directories(Test_VhalGrpcClient PRIVATE ${SOURCE_DIR})
+skab_copy_runtime_dlls(Test_VhalGrpcClient)
+gtest_discover_tests(Test_VhalGrpcClient)
 
 # ---- Integration tests (self-contained: in-process registry via the Vendor API) ----
 
@@ -49,6 +69,7 @@ gtest_discover_tests(Test_VhalSilKitSerdes)
 # mock client, so no gRPC/proto dependency.
 add_executable(ITest_VhalSilKitAdapter
     ITest_VhalSilKitAdapter.cpp
+    ${SOURCE_DIR}/VhalSimpleApi.cpp
 )
 target_link_libraries(ITest_VhalSilKitAdapter
     PRIVATE
@@ -60,6 +81,46 @@ target_include_directories(ITest_VhalSilKitAdapter PRIVATE ${SOURCE_DIR} ${CMAKE
 skab_copy_runtime_dlls(ITest_VhalSilKitAdapter)
 gtest_discover_tests(ITest_VhalSilKitAdapter)
 
+# ITest_VhalGrpcClient: drives the real VhalGrpcClient against a programmable
+# fake VehicleServer (FakeVehicleServer.hpp) over gRPC's in-process transport.
+# This is the coverage Test_VhalGrpcClient cannot provide: that target stops at
+# VhalGrpcConvert, the pure translation, while everything here needs a stub.
+add_executable(ITest_VhalGrpcClient
+    ITest_VhalGrpcClient.cpp
+    ${SOURCE_DIR}/VhalGrpcClient.cpp
+    ${SOURCE_DIR}/VhalGrpcConvert.cpp
+)
+target_link_libraries(ITest_VhalGrpcClient
+    PRIVATE
+        GTest::gtest_main
+        proto_lib
+        spdlog::spdlog
+)
+target_include_directories(ITest_VhalGrpcClient PRIVATE ${SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+skab_copy_runtime_dlls(ITest_VhalGrpcClient)
+gtest_discover_tests(ITest_VhalGrpcClient)
+
+# ITest_VhalBridgeGrpc: the whole chain a CANoe test bench exercises, minus
+# CANoe and minus the device - faked consumer over SIL Kit -> VhalSilKitAdapter
+# -> VhalGrpcClient -> fake VHAL over gRPC. Deliberately thin: it proves the
+# seams line up, while ITest_VhalGrpcClient carries the depth.
+add_executable(ITest_VhalBridgeGrpc
+    ITest_VhalBridgeGrpc.cpp
+    ${SOURCE_DIR}/VhalGrpcClient.cpp
+    ${SOURCE_DIR}/VhalGrpcConvert.cpp
+    ${SOURCE_DIR}/VhalSimpleApi.cpp
+)
+target_link_libraries(ITest_VhalBridgeGrpc
+    PRIVATE
+        GTest::gtest_main
+        proto_lib
+        SilKit::SilKit
+        spdlog::spdlog
+)
+target_include_directories(ITest_VhalBridgeGrpc PRIVATE ${SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+skab_copy_runtime_dlls(ITest_VhalBridgeGrpc)
+gtest_discover_tests(ITest_VhalBridgeGrpc)
+
 # ---- Manual developer tools (built, but NOT registered with CTest) ----
 # grpc-client-test: connects to a real VHAL gRPC server (pass the socket/URI as
 # argv[1]) and exercises VhalGrpcClient. Run by hand; intentionally has no
@@ -67,6 +128,7 @@ gtest_discover_tests(ITest_VhalSilKitAdapter)
 add_executable(grpc-client-test
     grpc-client-test.cpp
     ${SOURCE_DIR}/VhalGrpcClient.cpp
+    ${SOURCE_DIR}/VhalGrpcConvert.cpp
 )
 target_link_libraries(grpc-client-test
     PRIVATE
@@ -80,7 +142,10 @@ skab_copy_runtime_dlls(grpc-client-test)
 # silkit-client: connects to the sil-kit-android-bridge (at registry URI passed in as
 # argv[1]) and exercises the SIL Kit RPC side of the bridge:.
 # add_test/gtest_discover_tests.
-add_executable(silkit-client silkit-client.cpp)
+add_executable(silkit-client
+    silkit-client.cpp
+    ${SOURCE_DIR}/VhalSimpleApi.cpp
+)
 target_link_libraries(silkit-client
     PRIVATE
         SilKit::SilKit

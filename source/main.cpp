@@ -6,6 +6,7 @@
 #include <string>
 
 #include "VhalSilKitAdapter.hpp"
+#include "VhalSimpleApi.hpp"
 #include "VhalGrpcClient.hpp"
 #include "VhalMockClient.hpp"
 #include "silkit/SilKitVersion.hpp"
@@ -28,10 +29,14 @@ int main(int argc, char** argv) try {
     std::string silkitUri{"silkit://localhost:8500"};
     std::string vhalUri{};
     std::string logLevel{"Info"};
+    std::string virtualNetwork{VhalSimpleApi::kVirtualNetwork};
+    std::string silkitNamespace{VhalSimpleApi::kNamespace};
+    std::string silkitInstance{VhalSimpleApi::kInstance};
 
     using CliParser = SilKit::Util::CommandlineParser;
     CliParser parser;
-    parser.SetDescription("sil-kit-android-bridge - Connects a VHAL gRPC server to a SilKit participant");
+    parser.SetDescription(
+        "sil-kit-android-bridge - Serves the VhalSimple API over SIL Kit, backed by an Android VHAL gRPC server");
     parser.Add<CliParser::Flag>("version", "v", "[--version]", "-v, --version: Get version info.");
     parser.Add<CliParser::Flag>("help", "h", "[--help]", "-h, --help: Get this help.");
     parser.Add<CliParser::Flag>("mock", "m", "[--mock]", "-m, --mock: Enable mock mode for the VHAL side.");
@@ -55,6 +60,25 @@ int main(int argc, char** argv) try {
         "-l, --log <level>: SIL Kit: Log to stdout with level 'Trace', 'Debug', 'Warn', 'Info', 'Error', 'Critical' or 'Off'. "
         "Defaults to 'info' if the '--configuration' option is not specified. Cannot be used together with the "
         "'--configuration' option.");
+    // The three labels SIL Kit matches on. Defaults come from VhalSimpleApi, so
+    // a stock bridge and a stock VhalSimple.vcdl pair up with no arguments;
+    // overriding them lets the same binary serve a different interface
+    // definition. Note --virtual-network has no short form: -V is --vhal-uri
+    // here, though silkit-client (which has no --vhal-uri) does use -V for it.
+    parser.Add<CliParser::Option>(
+        "namespace", "N", VhalSimpleApi::kNamespace, "[--namespace <name>]",
+        std::string{"-N, --namespace <name>: The VCDL namespace to serve, used as the mandatory 'Namespace' "
+                    "matching label. Defaults to '"}
+            + VhalSimpleApi::kNamespace + "'.");
+    parser.Add<CliParser::Option>(
+        "instance", "i", VhalSimpleApi::kInstance, "[--instance <name>]",
+        std::string{"-i, --instance <name>: The VCDL interface object to serve, used as the mandatory 'Instance' "
+                    "matching label. Defaults to '"}
+            + VhalSimpleApi::kInstance + "'.");
+    parser.Add<CliParser::Option>(
+        "virtual-network", "", VhalSimpleApi::kVirtualNetwork, "[--virtual-network <name>]",
+        std::string{"    --virtual-network <name>: The mandatory 'VirtualNetwork' matching label. Defaults to '"}
+            + VhalSimpleApi::kVirtualNetwork + "'.");
     try {
         parser.ParseArguments(argc, argv);
     } catch (const std::runtime_error& e) {
@@ -104,6 +128,18 @@ int main(int argc, char** argv) try {
      {
          logLevel = parser.Get<CliParser::Option>("log").Value();
      }
+     if (parser.Get<CliParser::Option>("namespace").HasValue())
+     {
+         silkitNamespace = parser.Get<CliParser::Option>("namespace").Value();
+     }
+     if (parser.Get<CliParser::Option>("instance").HasValue())
+     {
+         silkitInstance = parser.Get<CliParser::Option>("instance").Value();
+     }
+     if (parser.Get<CliParser::Option>("virtual-network").HasValue())
+     {
+         virtualNetwork = parser.Get<CliParser::Option>("virtual-network").Value();
+     }
 
      std::unique_ptr<IVhalClient> client;
      if (useMock) {
@@ -113,8 +149,8 @@ int main(int argc, char** argv) try {
      }
 
      VhalSilKitAdapter adapter;
-     adapter.Init(silkitUri, participantName, participantConfiguration, logLevel, useSynchronized,
-                  std::move(client), "Default", "VhalSilkit", "vhalProperties");
+     adapter.Init(silkitUri, participantName, participantConfiguration, logLevel, useSynchronized, std::move(client),
+                  virtualNetwork, silkitNamespace, silkitInstance);
      adapter.Run();
      adapter.Shutdown();
 

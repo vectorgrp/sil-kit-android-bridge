@@ -23,20 +23,20 @@
 #include "VhalProperty.hpp"
 
 #include "IVhalClient.hpp"
+#include "VhalGrpcConvert.hpp"
 
 using namespace android::hardware::automotive::vehicle;
 using namespace android::hardware::automotive::vehicle::proto;
-
-class VhalClientError : public std::runtime_error
-{
-public:
-    using std::runtime_error::runtime_error;
-};
 
 class VhalGrpcClient : public IVhalClient
 {
 public:
     VhalGrpcClient(const std::string& uri);
+
+    //! Take a ready-made channel instead of dialling a URI. The dependency
+    //! injection seam the tests use: a fake VehicleServer bound to gRPC's
+    //! in-process transport needs no socket, no port and no ValidateUri.
+    explicit VhalGrpcClient(std::shared_ptr<grpc::Channel> channel);
 
     auto GetProperty(std::string_view name) -> std::optional<CarProperty> override;
     auto GetProperties(std::vector<std::string_view> nameList) -> std::vector<std::optional<CarProperty>> override;
@@ -120,6 +120,13 @@ public:
         {
             throw VhalClientError("SetValues failed: " + status.error_message());
         }
+        // The transport status only says the call arrived. A VHAL that accepts
+        // the call and refuses the write reports that per result.
+        if (auto err = VhalConvert::FirstSetError(response))
+        {
+            throw VhalClientError("SetValues on property "
+                                  + std::string(VehicleProperty_GetNameById(prop_id)) + ": " + *err);
+        }
     }
 
     template<typename T>
@@ -133,7 +140,20 @@ public:
 
         auto type = getPropertyType(prop_id);
 
-        if constexpr (std::is_floating_point_v<T>)
+        // A vector<uint8_t> is how CarProperty models a BYTES property, and the VHAL
+        // carries those in byte_values - not in int32_values. This branch has to come
+        // before the integral one below, which would otherwise claim uint8_t and
+        // reject every BYTES write with "expects BYTES, not INT32_VEC".
+        if constexpr (std::is_same_v<T, uint8_t>)
+        {
+            if (type != VehiclePropertyType::BYTES)
+            {
+                throw VhalClientError("SetValues: property " + std::string(VehicleProperty_GetNameById(prop_id))
+                                      + " expects " + std::string(VehiclePropertyType_Name(type)) + ", not BYTES");
+            }
+            prop_value->set_byte_values(std::string(values.begin(), values.end()));
+        }
+        else if constexpr (std::is_floating_point_v<T>)
         {
             if (type != VehiclePropertyType::FLOAT_VEC && type != VehiclePropertyType::FLOAT)
             {
@@ -174,6 +194,13 @@ public:
         if (!status.ok())
         {
             throw VhalClientError("SetValues failed: " + status.error_message());
+        }
+        // The transport status only says the call arrived. A VHAL that accepts
+        // the call and refuses the write reports that per result.
+        if (auto err = VhalConvert::FirstSetError(response))
+        {
+            throw VhalClientError("SetValues on property "
+                                  + std::string(VehicleProperty_GetNameById(prop_id)) + ": " + *err);
         }
     }
 

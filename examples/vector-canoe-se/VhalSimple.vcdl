@@ -1,0 +1,41 @@
+version 2.0;
+// SPDX-FileCopyrightText: 2026 Vector Informatik GmbH
+// SPDX-License-Identifier: MIT
+
+// The VhalSimple API, CANoe side. The C++ half is source/VhalSimpleApi.hpp and
+// the two must agree on the namespace, the object name, the method names and the
+// parameter types. A mismatch does not fail loudly: SIL Kit simply stops matching
+// and every call returns ServerNotReachable. GetApiVersion exists to make that
+// case diagnosable.
+
+import module "SilKit";
+
+namespace VhalSimple
+{
+  [Binding="SilKit"]
+  interface IVhalSimple
+  {
+    // Contract version. Bumped when a method changes or is removed, unchanged
+    // when one is added. Keep in sync with VhalSimpleApi::kApiVersion.
+    consumed method int32 GetApiVersion();
+
+    // int32 also carries AOSP BOOLEAN properties, normalised to 0/1.
+    consumed method int32 GetInt32(string name);
+    consumed method void  SetInt32(string name, int32 value);
+
+    consumed method int64 GetInt64(string name);
+    consumed method void  SetInt64(string name, int64 value);
+
+    consumed method float GetFloat(string name);
+    consumed method void  SetFloat(string name, float value);
+
+    consumed method string GetString(string name);
+    consumed method void   SetString(string name, string value);
+
+    // 'bytes' is a vCDL primitive sequence type; there is no [] suffix form.
+    consumed method bytes GetBytes(string name);
+    consumed method void  SetBytes(string name, bytes value);
+  }
+
+  IVhalSimple properties;
+}

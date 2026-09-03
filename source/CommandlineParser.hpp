@@ -2,6 +2,15 @@
 //
 // SPDX-License-Identifier: MIT
 
+// Provenance: copied verbatim from the SIL Kit repository
+// (github.com/vectorgrp/sil-kit, Utilities/), which is why the copyright year and
+// the SilKit::Util namespace differ from the rest of source/. Same copyright
+// holder and same license, so this is attribution rather than a third-party
+// dependency; it is listed in THIRD_PARTY_NOTICES.md for completeness. Keep it in
+// sync with upstream rather than editing it locally. Note that it declares
+// symbols in a namespace SIL Kit owns: if SIL Kit ever exports its own
+// CommandlineParser, this has to be renamed to avoid an ODR clash.
+
 #pragma once
 
 #include <vector>

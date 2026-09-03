@@ -1,4 +1,6 @@
 /*@!Encoding:1252*/
+// SPDX-FileCopyrightText: 2026 Vector Informatik GmbH
+// SPDX-License-Identifier: MIT
 includes 
 {
   #include "VhalUtils.cin"
@@ -8,42 +10,54 @@ export testcase CheckEvBatteryProperties()
 {
     int status = 0;
     long propertyValue = -1;
+    long apiVersion = -1;
     float propertyValueFloat = -1.0;
 
+    // Confirm the bridge speaks this VCDL before anything else. Without it a
+    // contract mismatch shows up as every later step timing out, which says
+    // nothing about the cause.
+    status = VhalGetApiVersion(apiVersion);
+    if (status > 0 && apiVersion == 1) {
+        testStepPass("0.1", "Bridge serves VhalSimple API v%d", apiVersion);
+    } else {
+        testStepFail("0.1", "No usable VhalSimple API: status=%d, version=%d (expected 1). Is the bridge running with matching --namespace/--instance?", status, apiVersion);
+        return;
+    }
+
     Write("Setting initial default values for properties");
-    status = SetProperty("EV_CHARGE_PORT_CONNECTED", 0);
-    status = SetPropertyFloat("EV_CURRENT_BATTERY_CAPACITY", 10); //kWh
-    status = SetPropertyFloat("EV_BATTERY_LEVEL", 0.0);
-    status = SetPropertyFloat("RANGE_REMAINING", 0);
+    status = VhalSetInt32("EV_CHARGE_PORT_CONNECTED", 0);
+    status = VhalSetFloat("EV_CURRENT_BATTERY_CAPACITY", 10); //kWh
+    status = VhalSetFloat("EV_BATTERY_LEVEL", 0.0);
+    status = VhalSetFloat("RANGE_REMAINING", 0);
     TestWaitForTimeout(1000);
 
     Write("Setting EV_CHARGE_PORT_CONNECTED to 1 (connected)");
-    status = SetProperty("EV_CHARGE_PORT_CONNECTED", 1);
-    status = GetProperty("EV_CHARGE_PORT_CONNECTED", propertyValue);
+    status = VhalSetInt32("EV_CHARGE_PORT_CONNECTED", 1);
+    status = VhalGetInt32("EV_CHARGE_PORT_CONNECTED", propertyValue);
 
     if (propertyValue == 1) {
-        testStepPass("1.0", "EV_CHARGE_PORT_CONNECTED is 0 as expected");
+        testStepPass("1.0", "EV_CHARGE_PORT_CONNECTED is 1 as expected");
     } else {
         testStepFail("1.0", "EV_CHARGE_PORT_CONNECTED expected 1, got %d", propertyValue);
     }
 
-    Write("Setting EV_BATTERY_LEVEL to 1000.0");
-    status = SetPropertyFloat("EV_BATTERY_LEVEL", 10000.0);
-    TestWaitForTimeout(1000);
-
-    Write("Setting EV_BATTERY_LEVEL to 3000.0");
-    status = SetPropertyFloat("EV_BATTERY_LEVEL", 30000.0);
-    TestWaitForTimeout(1000);
-
-    Write("Setting EV_BATTERY_LEVEL to 8000.0");
-    status = SetPropertyFloat("EV_BATTERY_LEVEL", 80000.0);
-    TestWaitForTimeout(1000);
-
     Write("Setting EV_BATTERY_LEVEL to 10000.0");
-    status = SetPropertyFloat("EV_BATTERY_LEVEL", 100000.0);
+    status = VhalSetFloat("EV_BATTERY_LEVEL", 10000.0);
     TestWaitForTimeout(1000);
 
-    status = GetPropertyFloat("EV_BATTERY_LEVEL", propertyValueFloat);
+    Write("Setting EV_BATTERY_LEVEL to 30000.0");
+    status = VhalSetFloat("EV_BATTERY_LEVEL", 30000.0);
+    TestWaitForTimeout(1000);
+
+    Write("Setting EV_BATTERY_LEVEL to 80000.0");
+    status = VhalSetFloat("EV_BATTERY_LEVEL", 80000.0);
+    TestWaitForTimeout(1000);
+
+    Write("Setting EV_BATTERY_LEVEL to 100000.0");
+    status = VhalSetFloat("EV_BATTERY_LEVEL", 100000.0);
+    TestWaitForTimeout(1000);
+
+    status = VhalGetFloat("EV_BATTERY_LEVEL", propertyValueFloat);
     if (propertyValueFloat == 100000.0 && status > 0) {
         testStepPass("1.0", "EV_BATTERY_LEVEL is 100000.0 as expected");
     } else {
@@ -51,11 +65,189 @@ export testcase CheckEvBatteryProperties()
         testStepFail("1.0", "EV_BATTERY_LEVEL expected 100000.0, got %f", propertyValueFloat);
     }
 
-    //GetPropertyFloat("NON_EXISTING", propertyValueFloat);
+    //VhalGetFloat("NON_EXISTING", propertyValueFloat);
 
     testWaitForTimeout(3000);
-    status = SetProperty("EV_CHARGE_PORT_CONNECTED", 0);
-    status = SetPropertyFloat("RANGE_REMAINING", 1337);
+    status = VhalSetInt32("EV_CHARGE_PORT_CONNECTED", 0);
+    status = VhalSetFloat("RANGE_REMAINING", 1337);
 
     testStepPass("1.0", "Test completed");
+}
+
+// Exercises one property per VhalSimple type. Written to pass against BOTH the
+// built-in --mock VHAL and a real device, so it asserts nothing about which values
+// a property happens to hold: it checks that each method family answers, then that
+// a write is either reflected on read-back or leaves the value untouched (a
+// read-only property on a real VHAL). Only a third, unrelated value is a failure.
+//
+// For the exact values --mock seeds, run CheckMockSeedValues instead.
+export testcase CheckAllPropertyTypes()
+{
+    int status = 0;
+    long apiVersion = -1;
+    long i32 = -1, i32Before = -1;
+    int64 i64 = -1, i64Before = -1;
+    float f32 = -1.0, f32Before = -1.0;
+    char text[128] = "", textBefore[128] = "";
+    byte blob[64], newSeed[4] = {0xCA, 0xFE, 0xBA, 0xBE};
+    long blobLen = -1, blobLenBefore = -1;
+
+    status = VhalGetApiVersion(apiVersion);
+    if (status > 0 && apiVersion == 1) {
+        testStepPass("0.1", "Bridge serves VhalSimple API v%d", apiVersion);
+    } else {
+        testStepFail("0.1", "No usable VhalSimple API: status=%d, version=%d (expected 1). Is the bridge running with matching --namespace/--instance?", status, apiVersion);
+        return;
+    }
+
+    // ---- int32 : EV_CHARGE_PORT_CONNECTED (AOSP BOOLEAN, carried as 0/1) ----
+    status = VhalGetInt32("EV_CHARGE_PORT_CONNECTED", i32Before);
+    if (status > 0) {
+        testStepPass("1.1", "int32 read answered: EV_CHARGE_PORT_CONNECTED = %d", i32Before);
+    } else {
+        testStepFail("1.1", "int32 read did not answer: status=%d", status);
+    }
+    status = VhalSetInt32("EV_CHARGE_PORT_CONNECTED", 1 - i32Before);
+    status = VhalGetInt32("EV_CHARGE_PORT_CONNECTED", i32);
+    if (status > 0 && i32 == 1 - i32Before) {
+        testStepPass("1.2", "int32 round trip: %d -> %d", i32Before, i32);
+    } else if (status > 0 && i32 == i32Before) {
+        testStepPass("1.2", "int32 unchanged at %d: read-only on this VHAL, the API itself answered", i32);
+    } else {
+        testStepFail("1.2", "int32 round trip failed: status=%d, value=%d (expected %d or the original %d)", status, i32, 1 - i32Before, i32Before);
+    }
+
+    // ---- int64 : ANDROID_EPOCH_TIME ----
+    status = VhalGetInt64("ANDROID_EPOCH_TIME", i64Before);
+    if (status > 0) {
+        testStepPass("2.1", "int64 read answered: ANDROID_EPOCH_TIME = %I64d", i64Before);
+    } else {
+        testStepFail("2.1", "int64 read did not answer: status=%d", status);
+    }
+    // Beyond 32 bits on purpose: a truncation in the wire format shows up here.
+    status = VhalSetInt64("ANDROID_EPOCH_TIME", 1800000000000);
+    status = VhalGetInt64("ANDROID_EPOCH_TIME", i64);
+    if (status > 0 && i64 == 1800000000000) {
+        testStepPass("2.2", "int64 round trip: %I64d", i64);
+    } else if (status > 0 && i64 == i64Before) {
+        testStepPass("2.2", "int64 unchanged at %I64d: read-only on this VHAL", i64);
+    } else {
+        testStepFail("2.2", "int64 round trip failed: status=%d, value=%I64d (expected 1800000000000; a 32-bit truncation shows up here)", status, i64);
+    }
+
+    // ---- float : EV_BATTERY_LEVEL ----
+    status = VhalGetFloat("EV_BATTERY_LEVEL", f32Before);
+    if (status > 0) {
+        testStepPass("3.1", "float read answered: EV_BATTERY_LEVEL = %f", f32Before);
+    } else {
+        testStepFail("3.1", "float read did not answer: status=%d", status);
+    }
+    status = VhalSetFloat("EV_BATTERY_LEVEL", 42.25);
+    status = VhalGetFloat("EV_BATTERY_LEVEL", f32);
+    if (status > 0 && f32 > 42.2 && f32 < 42.3) {
+        testStepPass("3.2", "float round trip: EV_BATTERY_LEVEL = %f", f32);
+    } else if (status > 0 && f32 == f32Before) {
+        testStepPass("3.2", "float unchanged at %f: read-only on this VHAL", f32);
+    } else {
+        testStepFail("3.2", "float round trip failed: status=%d, value=%f (expected 42.25 or the original %f)", status, f32, f32Before);
+    }
+
+    // ---- string : INFO_VIN (static on a real VHAL, so read-only is expected there) ----
+    status = VhalGetString("INFO_VIN", textBefore);
+    if (status > 0) {
+        testStepPass("4.1", "string read answered: INFO_VIN = %s", textBefore);
+    } else {
+        testStepFail("4.1", "string read did not answer: status=%d", status);
+    }
+    status = VhalSetString("INFO_VIN", "TESTVIN0000000001");
+    status = VhalGetString("INFO_VIN", text);
+    if (status > 0 && strncmp(text, "TESTVIN0000000001", 17) == 0) {
+        testStepPass("4.2", "string round trip: INFO_VIN = %s", text);
+    } else if (status > 0 && strncmp(text, textBefore, elcount(textBefore)) == 0) {
+        testStepPass("4.2", "string unchanged at %s: INFO_VIN is static on a real VHAL", text);
+    } else {
+        testStepFail("4.2", "string round trip failed: status=%d, value=%s", status, text);
+    }
+
+    // ---- bytes : STORAGE_ENCRYPTION_BINDING_SEED ----
+    // Not every VHAL supports this property; an empty read is reported, not failed.
+    status = VhalGetBytes("STORAGE_ENCRYPTION_BINDING_SEED", blob, blobLenBefore);
+    if (status > 0) {
+        testStepPass("5.1", "bytes read answered: %d bytes", blobLenBefore);
+    } else {
+        testStepFail("5.1", "bytes read did not answer: status=%d", status);
+    }
+    status = VhalSetBytes("STORAGE_ENCRYPTION_BINDING_SEED", newSeed);
+    status = VhalGetBytes("STORAGE_ENCRYPTION_BINDING_SEED", blob, blobLen);
+    if (status > 0 && blobLen == 4 && blob[0] == 0xCA && blob[1] == 0xFE && blob[2] == 0xBA && blob[3] == 0xBE) {
+        testStepPass("5.2", "bytes round trip: %d bytes, %02X %02X %02X %02X", blobLen, blob[0], blob[1], blob[2], blob[3]);
+    } else if (status > 0 && blobLen == blobLenBefore) {
+        testStepPass("5.2", "bytes unchanged (%d bytes): read-only or unsupported on this VHAL", blobLen);
+    } else {
+        testStepFail("5.2", "bytes round trip failed: status=%d, len=%d (expected 4 bytes CA FE BA BE, or the original %d bytes)", status, blobLen, blobLenBefore);
+    }
+
+    // ---- a property no VHAL knows: answered with the documented default ----
+    // The VCDL methods have no status out-parameter, so this is 0, not an error.
+    // The bridge log is where the reason appears.
+    status = VhalGetInt32("NOT_A_REAL_PROPERTY", i32);
+    if (status > 0 && i32 == 0) {
+        testStepPass("6.1", "unknown property answered with the 0 default, as documented");
+    } else {
+        testStepFail("6.1", "unknown property: status=%d, value=%d (expected status>0 and 0)", status, i32);
+    }
+
+    testStepPass("7.0", "All VhalSimple types exercised");
+}
+
+// Asserts the exact values --mock seeds (see source/VhalMockClient.hpp). Only
+// meaningful against the bridge started with --mock; against a real device the
+// values are whatever the vehicle reports, so this is NOT in the default test
+// tree. Add it to VhalTest.vtesttree.yaml when validating against --mock.
+export testcase CheckMockSeedValues()
+{
+    int status = 0;
+    long i32 = -1;
+    int64 i64 = -1;
+    float f32 = -1.0;
+    char text[128] = "";
+    byte blob[64];
+    long blobLen = -1;
+
+    status = VhalGetInt32("INFO_MODEL_YEAR", i32);
+    if (status > 0 && i32 == 2026) {
+        testStepPass("1.1", "INFO_MODEL_YEAR = %d", i32);
+    } else {
+        testStepFail("1.1", "INFO_MODEL_YEAR: status=%d, value=%d (expected the seeded 2026; is the bridge running with --mock?)", status, i32);
+    }
+
+    status = VhalGetInt64("ANDROID_EPOCH_TIME", i64);
+    if (status > 0 && i64 == 1767225600000) {
+        testStepPass("2.1", "ANDROID_EPOCH_TIME = %I64d", i64);
+    } else {
+        testStepFail("2.1", "ANDROID_EPOCH_TIME: status=%d, value=%I64d (expected the seeded 1767225600000)", status, i64);
+    }
+
+    status = VhalGetFloat("EV_BATTERY_LEVEL", f32);
+    if (status > 0 && f32 > 88.4 && f32 < 88.6) {
+        testStepPass("3.1", "EV_BATTERY_LEVEL = %f", f32);
+    } else {
+        testStepFail("3.1", "EV_BATTERY_LEVEL: status=%d, value=%f (expected the seeded 88.5)", status, f32);
+    }
+
+    status = VhalGetString("INFO_VIN", text);
+    if (status > 0 && strncmp(text, "WVWZZZ1JZXW000001", 17) == 0) {
+        testStepPass("4.1", "INFO_VIN = %s", text);
+    } else {
+        testStepFail("4.1", "INFO_VIN: status=%d, value=%s (expected the seeded WVWZZZ1JZXW000001)", status, text);
+    }
+
+    status = VhalGetBytes("STORAGE_ENCRYPTION_BINDING_SEED", blob, blobLen);
+    if (status > 0 && blobLen == 4 && blob[0] == 0xDE && blob[1] == 0xAD && blob[2] == 0xBE && blob[3] == 0xEF) {
+        testStepPass("5.1", "STORAGE_ENCRYPTION_BINDING_SEED = %02X %02X %02X %02X", blob[0], blob[1], blob[2], blob[3]);
+    } else {
+        testStepFail("5.1", "STORAGE_ENCRYPTION_BINDING_SEED: status=%d, len=%d (expected the seeded 4 bytes DE AD BE EF)", status, blobLen);
+    }
+
+    testStepPass("6.0", "Mock seed values verified");
 }
