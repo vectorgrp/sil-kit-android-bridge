@@ -1,60 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Vector Informatik GmbH
 // SPDX-License-Identifier: MIT
 #include "VhalGrpcClient.hpp"
+#include "VhalGrpcConvert.hpp"
 #include "Print.hpp"
-
-static std::string ValidateUri(const std::string& uri)
-{
-    if (uri.rfind("/", 0) == 0)
-    {
-        return "unix://" + uri;
-    }
-    if (uri.rfind("unix://", 0) != 0 && uri.rfind("http://", 0) != 0 && uri.rfind("https://", 0) != 0)
-    {
-        throw VhalClientError("Invalid URI scheme. URI must start with unix://, http://, or https://");
-    }
-    return uri;
-}
 
 VhalGrpcClient::VhalGrpcClient(const std::string& uri)
     : stub_(VehicleServer::NewStub(
-          grpc::CreateChannel(ValidateUri(uri), grpc::InsecureChannelCredentials())))
+          grpc::CreateChannel(VhalConvert::ValidateUri(uri), grpc::InsecureChannelCredentials())))
 {
-}
-
-static auto ConvertToCarProperty(const VehiclePropValue& value) -> std::optional<CarProperty>
-{
-    auto name = VehicleProperty_GetNameById(value.prop());
-    auto type = getPropertyType(value.prop());
-    // A result that carries no value at all is normal (a NOT_AVAILABLE status, a
-    // property the VHAL declined to read). Indexing a repeated field that far is
-    // a protobuf CHECK failure in a debug build and an out-of-bounds read in a
-    // release one, so every scalar case is guarded.
-    switch (type)
-    {
-    case VehiclePropertyType::STRING:
-        return CarProperty{name, value.string_value()};
-    case VehiclePropertyType::BOOLEAN:
-        if (value.int32_values_size() == 0)
-            return std::nullopt;
-        return CarProperty{name, value.int32_values(0) != 0};
-    case VehiclePropertyType::INT32:
-        if (value.int32_values_size() == 0)
-            return std::nullopt;
-        return CarProperty{name, value.int32_values(0)};
-    case VehiclePropertyType::INT64:
-        if (value.int64_values_size() == 0)
-            return std::nullopt;
-        return CarProperty{name, value.int64_values(0)};
-    case VehiclePropertyType::FLOAT:
-        if (value.float_values_size() == 0)
-            return std::nullopt;
-        return CarProperty{name, value.float_values(0)};
-    case VehiclePropertyType::BYTES:
-        return CarProperty{name, std::vector<uint8_t>(value.byte_values().begin(), value.byte_values().end())};
-    default:
-        return std::nullopt;
-    }
 }
 
 auto VhalGrpcClient::GetProperty(std::string_view name) -> std::optional<CarProperty>
@@ -73,7 +26,9 @@ auto VhalGrpcClient::GetProperties(std::vector<std::string_view> nameList) -> st
     auto&& values = GetValues(nameList);
     for (auto&& result : values.results())
     {
-        ConvertToCarProperty(result.value()).swap(results.emplace_back());
+        // ToCarProperty(GetValueResult) yields nullopt for a non-OK StatusCode,
+        // so a refused read arrives as "no value" rather than as data.
+        VhalConvert::ToCarProperty(result).swap(results.emplace_back());
     }
     return results;
 }

@@ -42,6 +42,24 @@ target_include_directories(Test_VhalSilKitSerdes PRIVATE ${SOURCE_DIR})
 skab_copy_runtime_dlls(Test_VhalSilKitSerdes)
 gtest_discover_tests(Test_VhalSilKitSerdes)
 
+# Test_VhalGrpcClient: covers the pure VHAL translation layer - URI validation,
+# VehiclePropValue -> CarProperty, and the StatusCode gating on read and write
+# results. VhalGrpcConvert.hpp is deliberately proto-only, so this needs the
+# generated sources but neither a gRPC server nor SIL Kit.
+add_executable(Test_VhalGrpcClient
+    Test_VhalGrpcClient.cpp
+    ${SOURCE_DIR}/VhalGrpcConvert.cpp
+)
+target_link_libraries(Test_VhalGrpcClient
+    PRIVATE
+        GTest::gtest_main
+        proto_lib
+        spdlog::spdlog
+)
+target_include_directories(Test_VhalGrpcClient PRIVATE ${SOURCE_DIR})
+skab_copy_runtime_dlls(Test_VhalGrpcClient)
+gtest_discover_tests(Test_VhalGrpcClient)
+
 # ---- Integration tests (self-contained: in-process registry via the Vendor API) ----
 
 # ITest_VhalSilKitAdapter: drives the real VhalSilKitAdapter (with a VhalMockClient)
@@ -67,6 +85,7 @@ gtest_discover_tests(ITest_VhalSilKitAdapter)
 add_executable(grpc-client-test
     grpc-client-test.cpp
     ${SOURCE_DIR}/VhalGrpcClient.cpp
+    ${SOURCE_DIR}/VhalGrpcConvert.cpp
 )
 target_link_libraries(grpc-client-test
     PRIVATE

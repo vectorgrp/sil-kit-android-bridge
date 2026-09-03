@@ -176,6 +176,29 @@ TEST_F(AdapterRpcTest, UnknownPropertyReturnsZero)
     EXPECT_EQ(ParseInt32(result.data), 0);
 }
 
+// A property that exists but holds another type must not be mistaken for data.
+// VhalMockClient::SetProperty overwrites the stored variant with whatever it is
+// handed, so writing CABIN_TEMP as a float and then reading it through the int32
+// GetProperty reaches the adapter's type-mismatch branch. The VCDL methods carry
+// no status out-parameter, so 0 is still what CANoe receives - what changed is
+// that the bridge now logs which type it actually found instead of staying mute.
+TEST_F(AdapterRpcTest, WrongTypeReturnsZero)
+{
+    const auto setResult = canoe_->Call(setFloatClient_, ToSpan(SetFloatReq("CABIN_TEMP", 21.5f)));
+    ASSERT_EQ(setResult.status, Rpc::RpcCallStatus::Success);
+
+    // Same property, read through the int32 method rather than the float one.
+    const auto getResult = canoe_->Call(getClient_, ToSpan(GetReq("CABIN_TEMP")));
+    ASSERT_EQ(getResult.status, Rpc::RpcCallStatus::Success);
+    EXPECT_EQ(ParseInt32(getResult.data), 0);
+
+    // ...while reading it through the matching method still works, which proves
+    // the zero above came from the type mismatch and not from a lost write.
+    const auto asFloat = canoe_->Call(getFloatClient_, ToSpan(GetReq("CABIN_TEMP")));
+    ASSERT_EQ(asFloat.status, Rpc::RpcCallStatus::Success);
+    EXPECT_FLOAT_EQ(ParseFloat(asFloat.data), 21.5f);
+}
+
 // Regression guard for the CANoe-interop bug: the RpcSpec function name is the
 // matching key. A client that uses the full DO path as the function name (the
 // old, broken behavior) must NOT match the adapter's server.

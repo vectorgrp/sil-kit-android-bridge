@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -101,6 +102,44 @@ struct fmt::formatter<CarProperty> : fmt::formatter<std::string>
         return fmt::formatter<std::string>::format(oss.str(), ctx);
     }
 };
+
+// Names for the CarProperty variant arms, so a diagnostic can say which type was
+// found and which was asked for. The arms mirror operator<< above.
+inline auto CarPropertyTypeName(const CarProperty::Value& value) -> const char*
+{
+    return std::visit([](auto&& arg) -> const char* {
+        using T = std::decay_t<decltype(arg)>;
+        if constexpr (std::is_same_v<T, std::monostate>)
+            return "<empty>";
+        else if constexpr (std::is_same_v<T, std::string>)
+            return "string";
+        else if constexpr (std::is_same_v<T, int32_t>)
+            return "int32";
+        else if constexpr (std::is_same_v<T, int64_t>)
+            return "int64";
+        else if constexpr (std::is_same_v<T, float>)
+            return "float";
+        else
+            return "bytes";
+    }, value);
+}
+
+template <typename T>
+constexpr auto CarPropertyTypeNameOf() -> const char*
+{
+    if constexpr (std::is_same_v<T, std::string>)
+        return "string";
+    else if constexpr (std::is_same_v<T, int32_t>)
+        return "int32";
+    else if constexpr (std::is_same_v<T, int64_t>)
+        return "int64";
+    else if constexpr (std::is_same_v<T, float>)
+        return "float";
+    else if constexpr (std::is_same_v<T, std::vector<uint8_t>>)
+        return "bytes";
+    else
+        return "<unsupported>";
+}
 
 using PropertyChangedHandler = std::function<void(const CarProperty&)>;
 

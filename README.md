@@ -16,7 +16,7 @@ test benches.
 >
 > We are publishing it early on purpose, because the useful next step is finding
 > out what people actually need from it. **Please
-> [open an issue](https://github.com/vectorgrp/sil-kit-android-bridge/issues)** --
+> [open an issue](https://github.com/vectorgrp/sil-kit-android-bridge/issues)**:
 > bug reports, "this does not build on my machine", missing property types, and
 > use cases we have not thought of are all equally welcome. Tell us what you are
 > trying to do and we will tell you honestly whether it fits.
@@ -28,15 +28,19 @@ test benches.
 >   to read values rather than being notified of changes.
 > - **Two value types reach SIL Kit.** Only `int32` and `float`. String, int64
 >   and byte-array properties are modelled internally but have no route to CANoe.
-> - **Errors look like data.** An unknown property or a failed read answers `0`
->   with `RpcCallStatus::Success`, because the VCDL methods carry no status
->   out-parameter. A caller cannot distinguish "battery at 0%" from "no such
->   property". A VHAL result carrying a non-OK `StatusCode` is likewise not
->   surfaced.
-> - **The gRPC client is untested.** `source/VhalGrpcClient.cpp` -- the path that
->   talks to a real Android device -- has no automated coverage. CI exercises the
->   bridge through the built-in mock. Expect rough edges against real hardware,
->   and please report them.
+> - **Errors look like data on the wire.** An unknown property, a read the VHAL
+>   refused, and a type mismatch all answer `0` with `RpcCallStatus::Success`,
+>   because the VCDL methods carry no status out-parameter. From the response
+>   alone a caller still cannot tell "battery at 0%" from "no such property". What
+>   the wire cannot say, the bridge log now does: all three cases are logged, in
+>   both the read and the write direction, and a non-OK VHAL `StatusCode` is no
+>   longer converted into a plausible-looking number.
+> - **The networked gRPC path is untested.** The translation layer is covered --
+>   `source/VhalGrpcConvert.cpp` handles URI validation, value conversion and the
+>   `StatusCode` gating, and `test/Test_VhalGrpcClient.cpp` exercises it. The stub
+>   that actually talks to an Android device has no automated coverage; CI drives
+>   the bridge through the built-in mock. Expect rough edges against real
+>   hardware, and please report them.
 
 ## What it does
 

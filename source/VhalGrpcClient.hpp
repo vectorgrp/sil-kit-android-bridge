@@ -23,15 +23,10 @@
 #include "VhalProperty.hpp"
 
 #include "IVhalClient.hpp"
+#include "VhalGrpcConvert.hpp"
 
 using namespace android::hardware::automotive::vehicle;
 using namespace android::hardware::automotive::vehicle::proto;
-
-class VhalClientError : public std::runtime_error
-{
-public:
-    using std::runtime_error::runtime_error;
-};
 
 class VhalGrpcClient : public IVhalClient
 {
@@ -120,6 +115,13 @@ public:
         {
             throw VhalClientError("SetValues failed: " + status.error_message());
         }
+        // The transport status only says the call arrived. A VHAL that accepts
+        // the call and refuses the write reports that per result.
+        if (auto err = VhalConvert::FirstSetError(response))
+        {
+            throw VhalClientError("SetValues on property "
+                                  + std::string(VehicleProperty_GetNameById(prop_id)) + ": " + *err);
+        }
     }
 
     template<typename T>
@@ -174,6 +176,13 @@ public:
         if (!status.ok())
         {
             throw VhalClientError("SetValues failed: " + status.error_message());
+        }
+        // The transport status only says the call arrived. A VHAL that accepts
+        // the call and refuses the write reports that per result.
+        if (auto err = VhalConvert::FirstSetError(response))
+        {
+            throw VhalClientError("SetValues on property "
+                                  + std::string(VehicleProperty_GetNameById(prop_id)) + ": " + *err);
         }
     }
 

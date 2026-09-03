@@ -272,10 +272,19 @@ T VhalSilKitAdapter::GetProperty(const std::string& propertyName)
         {
             if (prop->Holds<T>())
                 return prop->Get<T>().value();
+
+            // The read-side counterpart of the "expects INT32, not FLOAT" errors
+            // the write path throws from VhalGrpcClient::SetValues. Without this
+            // branch a wrong-typed read fell through to the 0 below with no trace
+            // anywhere, which is indistinguishable from a genuine zero reading.
+            LogError("VhalSilKitAdapter::GetProperty: property '{}' holds {}, not the requested {}; returning 0",
+                     propertyName, CarPropertyTypeName(prop->value), CarPropertyTypeNameOf<T>());
         }
         else
         {
-            LogError("VhalSilKitAdapter::GetProperty: Property '{}' not found.", propertyName);
+            LogError("VhalSilKitAdapter::GetProperty: Property '{}' not found, or the VHAL refused the read; "
+                     "returning 0",
+                     propertyName);
         }
     }
     catch (const std::runtime_error& e)
