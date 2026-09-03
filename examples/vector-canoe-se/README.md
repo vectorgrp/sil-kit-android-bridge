@@ -16,10 +16,10 @@ you do not have CANoe.
 
 | File | Role |
 |------|------|
-| `VhalProperties.vcdl` | The interface contract. Declares namespace `VhalSilkit`, the `IVhalToSilkit` interface with the four consumed methods, and the object `vhalProperties`. |
-| `VhalUtils.cin` | CAPL helpers wrapping each method in an async call plus `testWaitForAnswer` (`VhalSetProperty`, `VhalGetProperty`, `VhalSetPropertyFloat`, `VhalGetPropertyFloat`). |
-| `VhalTest.can` | The CAPL test case `CheckEvBatteryProperties`: seeds a few EV properties, drives `EV_BATTERY_LEVEL` through a ramp, and reads values back. |
-| `venvironment.yaml` | Virtual environment: binds `VhalProperties.vcdl` and sets the SIL Kit participant name to `canoe-vhal-test`. |
+| `VhalSimple.vcdl` | The interface contract. Declares namespace `VhalSimple`, the `IVhalSimple` interface with the ten property methods plus `GetApiVersion`, and the object `properties`. |
+| `VhalUtils.cin` | CAPL helpers wrapping each method in an async call plus `testWaitForAnswer`: `VhalGetInt32` / `VhalSetInt32` and the same pair for `Int64`, `Float`, `String` and `Bytes`, plus `VhalGetApiVersion`. |
+| `VhalTest.can` | Two CAPL test cases. `CheckEvBatteryProperties` drives `EV_BATTERY_LEVEL` through a ramp; `CheckAllPropertyTypes` checks the API version and then, for each of the five types, reads the seeded value (step `x.1`) and does a write/read-back (step `x.2`), so one run shows exactly which method family fails. |
+| `venvironment.yaml` | Virtual environment: binds `VhalSimple.vcdl` and sets the SIL Kit participant name to `canoe-vhal-test`. |
 | `VhalTest.vtestunit.yaml` | Test unit: `VhalTest.can` plus the test tree. |
 | `VhalTest.vtesttree.yaml` | Test tree: the single CAPL test case to execute. |
 | `run_canoe_se.sh` | Builds the environment and test unit, then runs CANoe SE against them. |
@@ -27,15 +27,20 @@ you do not have CANoe.
 
 ## How it matches the bridge
 
-`VhalProperties.vcdl` and `source/VhalSilKitAdapter.hpp` describe the same four
-RPC endpoints, and they have to agree on three things or nothing matches:
+`VhalSimple.vcdl` and [`source/VhalSimpleApi.hpp`](../../source/VhalSimpleApi.hpp)
+are the two halves of one contract, and they have to agree on three things or
+nothing matches:
 
-- **Function name** -- the bare method name (`GetProperty`, not
-  `VhalSilkit::vhalProperties.GetProperty`) is the SIL Kit matching key.
-- **Labels** -- `VirtualNetwork=Default`, `Namespace=VhalSilkit`,
-  `Instance=vhalProperties`, all `Mandatory`.
+- **Function name** -- the bare method name (`GetInt32`, not
+  `VhalSimple::properties.GetInt32`) is the SIL Kit matching key.
+- **Labels** -- `VirtualNetwork=Default`, `Namespace=VhalSimple`,
+  `Instance=properties`, all `Mandatory`.
 - **Wire format** -- the SIL Kit SerDes encoding, guarded by
-  `test/Test_VhalSilKitSerdes.cpp`.
+  `test/Test_VhalSimpleApi.cpp`.
+
+A mismatch never fails loudly: SIL Kit simply does not pair the client with the
+server, and every call returns `ServerNotReachable`. That is what
+`GetApiVersion` is for, and why `CheckEvBatteryProperties` calls it first.
 
 The adapter defaults to exactly the values `sil-adapter-builder` generates from
 this VCDL, so a CANoe participant built against it matches with no extra
@@ -45,7 +50,49 @@ not part of this repository.
 
 `test/ITest_VhalSilKitAdapter.cpp` stands in for this whole directory in CI: it
 fakes the CANoe side with a plain SIL Kit participant using the same function
-names and labels, so the contract is regression-tested without CANoe.
+names and labels, so the contract is regression-tested without CANoe. The
+`silkit-client` tool does the same thing interactively.
+
+## What `--mock` serves
+
+`--mock` needs no Android device. It seeds every VhalSimple type with a
+distinctive value, so a wrong read looks wrong instead of looking like a
+plausible zero. `CheckAllPropertyTypes` asserts against exactly these:
+
+| Type | Property | Seeded value |
+|------|----------|--------------|
+| `int32` | `INFO_MODEL_YEAR` | `2026` |
+| `int32` | `EV_CHARGE_TIME_REMAINING` | `1234` |
+| `int32` | `EV_CHARGE_STATE` | `3` |
+| `int32` | `GEAR_SELECTION` | `4` |
+| `int32` (AOSP BOOLEAN) | `EV_CHARGE_PORT_CONNECTED` | `1` |
+| `int32` (AOSP BOOLEAN) | `NIGHT_MODE` | `0` |
+| `int64` | `ANDROID_EPOCH_TIME` | `1767225600000` |
+| `float` | `EV_BATTERY_LEVEL` | `88.5` |
+| `float` | `RANGE_REMAINING` | `412.5` |
+| `float` | `EV_CURRENT_BATTERY_CAPACITY` | `64000.0` |
+| `float` | `INSTANTANEOUS_EV_EFFICIENCY` | `6.25` |
+| `float` | `PERF_VEHICLE_SPEED` | `27.75` |
+| `float` | `PERF_ODOMETER` | `123456.75` |
+| `string` | `INFO_VIN` | `WVWZZZ1JZXW000001` |
+| `string` | `INFO_MAKE` | `Vector` |
+| `string` | `INFO_MODEL` | `SIL Kit Android Bridge` |
+| `bytes` | `STORAGE_ENCRYPTION_BINDING_SEED` | `DE AD BE EF` |
+
+The seed lives in [`source/VhalMockClient.hpp`](../../source/VhalMockClient.hpp);
+add a property there and it is immediately reachable from CANoe.
+
+**Use the method family that matches the AOSP type.** The mock declares each
+value with the type AOSP declares for that property id, exactly as a device would,
+so `GetFloat("EV_BATTERY_LEVEL")` works and `GetInt32` on it returns `0` and logs
+a type mismatch. Two consequences worth knowing:
+
+- A property the mock does not seed answers with `0` / `""` / empty, not an error -
+  the VCDL methods have no status out-parameter. The bridge log says which it was.
+- A write through the wrong family is *refused* by the VHAL, but `Set<Type>` is a
+  `void` method, so CANoe still sees `Success`. The stored value is unchanged and
+  the bridge logs `expects FLOAT, not int32`. Check the bridge log, not the call
+  status.
 
 ## Running it
 
@@ -72,6 +119,25 @@ names and labels, so the contract is regression-tested without CANoe.
 
 ## Caveats
 
+- **The `bytes` methods are the least-proven part of this contract.** The vCDL
+  loads in CANoe, so the declarations themselves are settled: `bytes` is a
+  primitive sequence type, valid as both a parameter and a return type. (There is
+  no `[]` suffix form in the language - square brackets are only ever attributes -
+  so `uint8[]` and `char[]` do not parse.) Two things one level down are still
+  unconfirmed: how CAPL marshals a `bytes` parameter into `CallAsync`, and whether
+  `sil-adapter-builder` encodes it the way SIL Kit SerDes does (a `uint32` length
+  prefix followed by raw bytes, byte-identical to a `string`). The CAPL wrappers
+  below use a char array, the documented CAPL representation for byte data. If
+  either turns out wrong, delete the two `Bytes` methods from the vCDL and the two
+  wrappers from `VhalUtils.cin`: the bridge serves methods no vCDL declares
+  without complaining, so the other nine are unaffected. Please report what works.
+- The CAPL helpers for `string` and `bytes` copy the result into a caller-supplied
+  buffer with `strncpy`; size the buffer for the properties you read. For `bytes`
+  that also means a payload containing `0x00` is cut short - the helpers carry
+  bytes in a char array, which is NUL-terminated. `CheckAllPropertyTypes`
+  therefore round-trips a printable payload (`CAFE`). A binary-safe helper would
+  need an explicit length alongside the buffer; the bridge itself has no such
+  limit, it is purely the CAPL side.
 - The minimum CANoe SE version is not pinned here. The configuration files
   declare their own schema versions (`venvironment.yaml` 4.0.0, the test unit and
   test tree 2.0.0), which is the only version information this directory carries.

@@ -3,7 +3,7 @@ version: 4.0.0
 # SPDX-License-Identifier: MIT
 
 datasources:
-  - file-path: VhalProperties.vcdl
+  - file-path: VhalSimple.vcdl
 
 sil-kit:
   participant-name: canoe-vhal-test

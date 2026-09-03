@@ -3,3 +3,4 @@ version: 2.0.0
 # SPDX-License-Identifier: MIT
 test-tree:
   - capl-test-case: CheckEvBatteryProperties
+  - capl-test-case: CheckAllPropertyTypes

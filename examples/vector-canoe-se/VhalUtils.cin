@@ -2,22 +2,22 @@
 // SPDX-FileCopyrightText: 2026 Vector Informatik GmbH
 // SPDX-License-Identifier: MIT
 
-// Keep in sync with VhalProperties.vcdl
-variables 
+// CAPL wrappers for the VhalSimple API. Keep in sync with VhalSimple.vcdl.
+// Every wrapper returns the testWaitForAnswer status: > 0 on success, <= 0 when
+// the call did not complete (most often because the bridge is not running or its
+// --namespace/--instance do not match this VCDL).
+variables
 {
     int maxWait = 100; //milliseconds
 }
-int VhalSetProperty(char name[], long value)
-{
-    callcontext vhalProperties.SetProperty cc;
-    cc = vhalProperties.SetProperty.CallAsync(name, value);
-    return testWaitForAnswer(cc, maxWait);
-}
-int VhalGetProperty(char name[], long& value)
+
+// Contract version served by the bridge. Compare against the value this VCDL was
+// written for; a mismatch explains an otherwise silent failure to match.
+int VhalGetApiVersion(long& value)
 {
     int status = -1;
-    callcontext vhalProperties.GetProperty cc;
-    cc = vhalProperties.GetProperty.CallAsync(name);
+    callcontext properties.GetApiVersion cc;
+    cc = properties.GetApiVersion.CallAsync();
     status = testWaitForAnswer(cc, maxWait);
     if(status > 0) {
         value = cc.Result;
@@ -25,21 +25,112 @@ int VhalGetProperty(char name[], long& value)
     return status;
 }
 
-int VhalSetPropertyFloat(char name[], float value)
+// ---- int32 (also carries AOSP BOOLEAN properties, as 0/1) ----
+
+int VhalSetInt32(char name[], long value)
 {
-    callcontext vhalProperties.SetPropertyFloat cc;
-    cc = vhalProperties.SetPropertyFloat.CallAsync(name, value);
+    callcontext properties.SetInt32 cc;
+    cc = properties.SetInt32.CallAsync(name, value);
     return testWaitForAnswer(cc, maxWait);
 }
 
-int VhalGetPropertyFloat(char name[], float& value)
+int VhalGetInt32(char name[], long& value)
 {
     int status = -1;
-    callcontext vhalProperties.GetPropertyFloat cc;
-    cc = vhalProperties.GetPropertyFloat.CallAsync(name);
+    callcontext properties.GetInt32 cc;
+    cc = properties.GetInt32.CallAsync(name);
     status = testWaitForAnswer(cc, maxWait);
     if(status > 0) {
         value = cc.Result;
+    }
+    return status;
+}
+
+// ---- int64 ----
+
+int VhalSetInt64(char name[], int64 value)
+{
+    callcontext properties.SetInt64 cc;
+    cc = properties.SetInt64.CallAsync(name, value);
+    return testWaitForAnswer(cc, maxWait);
+}
+
+int VhalGetInt64(char name[], int64& value)
+{
+    int status = -1;
+    callcontext properties.GetInt64 cc;
+    cc = properties.GetInt64.CallAsync(name);
+    status = testWaitForAnswer(cc, maxWait);
+    if(status > 0) {
+        value = cc.Result;
+    }
+    return status;
+}
+
+// ---- float ----
+
+int VhalSetFloat(char name[], float value)
+{
+    callcontext properties.SetFloat cc;
+    cc = properties.SetFloat.CallAsync(name, value);
+    return testWaitForAnswer(cc, maxWait);
+}
+
+int VhalGetFloat(char name[], float& value)
+{
+    int status = -1;
+    callcontext properties.GetFloat cc;
+    cc = properties.GetFloat.CallAsync(name);
+    status = testWaitForAnswer(cc, maxWait);
+    if(status > 0) {
+        value = cc.Result;
+    }
+    return status;
+}
+
+// ---- string ----
+
+int VhalSetString(char name[], char value[])
+{
+    callcontext properties.SetString cc;
+    cc = properties.SetString.CallAsync(name, value);
+    return testWaitForAnswer(cc, maxWait);
+}
+
+int VhalGetString(char name[], char value[])
+{
+    int status = -1;
+    callcontext properties.GetString cc;
+    cc = properties.GetString.CallAsync(name);
+    status = testWaitForAnswer(cc, maxWait);
+    if(status > 0) {
+        strncpy(value, cc.Result, elcount(value));
+    }
+    return status;
+}
+
+// ---- bytes ----
+
+// UNVERIFIED: the vCDL side uses the primitive sequence type "bytes"; how CAPL
+// marshals that into CallAsync has not been confirmed here. A char array is the
+// documented CAPL representation for byte data in distributed-object bindings,
+// so that is what these two use. Adjust if your CANoe disagrees, and please
+// report what it accepts.
+int VhalSetBytes(char name[], char value[])
+{
+    callcontext properties.SetBytes cc;
+    cc = properties.SetBytes.CallAsync(name, value);
+    return testWaitForAnswer(cc, maxWait);
+}
+
+int VhalGetBytes(char name[], char value[])
+{
+    int status = -1;
+    callcontext properties.GetBytes cc;
+    cc = properties.GetBytes.CallAsync(name);
+    status = testWaitForAnswer(cc, maxWait);
+    if(status > 0) {
+        strncpy(value, cc.Result, elcount(value));
     }
     return status;
 }

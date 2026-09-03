@@ -25,6 +25,7 @@
 #include "TestHarness.hpp"
 #include "VhalMockClient.hpp"
 #include "VhalSilKitAdapter.hpp"
+#include "VhalSimpleApi.hpp"
 
 namespace
 {
@@ -33,9 +34,13 @@ namespace SerDes = SilKit::Util::SerDes;
 using SilKit::Util::ToSpan;
 using test::SkParticipant;
 
-constexpr auto kVirtualNetwork = "Default";
-constexpr auto kNamespace = "VhalSilkit";
-constexpr auto kInstance = "vhalProperties";
+namespace Api = VhalSimpleApi;
+
+// Taken from the contract header, not restated: a rename there must reach the
+// adapter and this test together or the whole suite stops matching.
+constexpr auto kVirtualNetwork = Api::kVirtualNetwork;
+constexpr auto kNamespace = Api::kNamespace;
+constexpr auto kInstance = Api::kInstance;
 
 // Build the RpcSpec a CANoe-generated consumer uses: the bare method name as the
 // function name (the matching key) plus the three Mandatory labels. Defaults
@@ -72,6 +77,31 @@ auto SetFloatReq(const std::string& name, float value) -> std::vector<uint8_t>
     s.Serialize(value);
     return s.ReleaseBuffer();
 }
+auto SetInt64Req(const std::string& name, int64_t value) -> std::vector<uint8_t>
+{
+    SerDes::Serializer s;
+    s.Serialize(name);
+    s.Serialize(value, 64);
+    return s.ReleaseBuffer();
+}
+auto SetStringReq(const std::string& name, const std::string& value) -> std::vector<uint8_t>
+{
+    SerDes::Serializer s;
+    s.Serialize(name);
+    s.Serialize(value);
+    return s.ReleaseBuffer();
+}
+auto SetBytesReq(const std::string& name, const std::vector<uint8_t>& value) -> std::vector<uint8_t>
+{
+    SerDes::Serializer s;
+    s.Serialize(name);
+    s.Serialize(value);
+    return s.ReleaseBuffer();
+}
+auto EmptyReq() -> std::vector<uint8_t>
+{
+    return {};
+}
 auto ParseInt32(const std::vector<uint8_t>& bytes) -> int32_t
 {
     SerDes::Deserializer d{bytes};
@@ -81,6 +111,21 @@ auto ParseFloat(const std::vector<uint8_t>& bytes) -> float
 {
     SerDes::Deserializer d{bytes};
     return d.Deserialize<float>();
+}
+auto ParseInt64(const std::vector<uint8_t>& bytes) -> int64_t
+{
+    SerDes::Deserializer d{bytes};
+    return d.Deserialize<int64_t>(64);
+}
+auto ParseString(const std::vector<uint8_t>& bytes) -> std::string
+{
+    SerDes::Deserializer d{bytes};
+    return d.Deserialize<std::string>();
+}
+auto ParseBytes(const std::vector<uint8_t>& bytes) -> std::vector<uint8_t>
+{
+    SerDes::Deserializer d{bytes};
+    return d.Deserialize<std::vector<uint8_t>>();
 }
 
 class AdapterRpcTest : public ::testing::Test
@@ -96,18 +141,26 @@ protected:
         canoe_ = std::make_unique<SkParticipant>("canoe-vhal-test", registry_.Uri());
         // Canonical (controller) name carries the full path like CANoe; the RpcSpec
         // function name (bare method) is what actually matches.
-        getClient_ = canoe_->AddRpcClient("Default::VhalSilkit::vhalProperties.GetProperty",
-                                          MakeClientSpec("GetProperty"));
-        setClient_ = canoe_->AddRpcClient("Default::VhalSilkit::vhalProperties.SetProperty",
-                                          MakeClientSpec("SetProperty"));
-        getFloatClient_ = canoe_->AddRpcClient("Default::VhalSilkit::vhalProperties.GetPropertyFloat",
-                                               MakeClientSpec("GetPropertyFloat"));
-        setFloatClient_ = canoe_->AddRpcClient("Default::VhalSilkit::vhalProperties.SetPropertyFloat",
-                                               MakeClientSpec("SetPropertyFloat"));
+        const std::string path = std::string{kVirtualNetwork} + "::" + kNamespace + "::" + kInstance + ".";
+        auto add = [&](const char* method) { return canoe_->AddRpcClient(path + method, MakeClientSpec(method)); };
+        getClient_ = add(Api::Method::kGetInt32);
+        setClient_ = add(Api::Method::kSetInt32);
+        getInt64Client_ = add(Api::Method::kGetInt64);
+        setInt64Client_ = add(Api::Method::kSetInt64);
+        getFloatClient_ = add(Api::Method::kGetFloat);
+        setFloatClient_ = add(Api::Method::kSetFloat);
+        getStringClient_ = add(Api::Method::kGetString);
+        setStringClient_ = add(Api::Method::kSetString);
+        getBytesClient_ = add(Api::Method::kGetBytes);
+        setBytesClient_ = add(Api::Method::kSetBytes);
+        versionClient_ = add(Api::Method::kGetApiVersion);
         // Same discovery round as the well-named clients, so that
-        // WrongFunctionNameDoesNotMatch compares like with like.
-        badClient_ = canoe_->AddRpcClient("wrong-function-name-probe",
-                                          MakeClientSpec("VhalSilkit::vhalProperties.GetProperty"));
+        // WrongFunctionNameDoesNotMatch compares like with like. The function name
+        // here is the fully qualified path, which is the old broken behavior - it
+        // has to track the rename or this guard silently stops testing anything.
+        badClient_ = canoe_->AddRpcClient(
+            "wrong-function-name-probe",
+            MakeClientSpec(std::string{kNamespace} + "::" + kInstance + "." + Api::Method::kGetInt32));
 
         // Every controller must exist before the lifecycle starts, so the clients
         // above are created first and the lifecycle is started here.
@@ -136,35 +189,52 @@ protected:
     std::unique_ptr<SkParticipant> canoe_;
     Rpc::IRpcClient* getClient_{nullptr};
     Rpc::IRpcClient* setClient_{nullptr};
+    Rpc::IRpcClient* getInt64Client_{nullptr};
+    Rpc::IRpcClient* setInt64Client_{nullptr};
     Rpc::IRpcClient* getFloatClient_{nullptr};
     Rpc::IRpcClient* setFloatClient_{nullptr};
+    Rpc::IRpcClient* getStringClient_{nullptr};
+    Rpc::IRpcClient* setStringClient_{nullptr};
+    Rpc::IRpcClient* getBytesClient_{nullptr};
+    Rpc::IRpcClient* setBytesClient_{nullptr};
+    Rpc::IRpcClient* versionClient_{nullptr};
     Rpc::IRpcClient* badClient_{nullptr};
 };
 
 TEST_F(AdapterRpcTest, GetPropertyReturnsMockValue)
 {
-    const auto result = canoe_->Call(getClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
+    // INFO_MODEL_YEAR is an AOSP INT32 property, so it travels over GetInt32.
+    const auto result = canoe_->Call(getClient_, ToSpan(GetReq("INFO_MODEL_YEAR")));
     ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
-    EXPECT_EQ(ParseInt32(result.data), 75); // seeded by VhalMockClient
+    EXPECT_EQ(ParseInt32(result.data), 2026); // seeded by VhalMockClient
+}
+
+// The float counterpart, and a guard against the mock drifting back to storing
+// AOSP FLOAT properties as int32 - which made GetFloat return 0 from CANoe.
+TEST_F(AdapterRpcTest, GetFloatReturnsMockValue)
+{
+    const auto result = canoe_->Call(getFloatClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+    EXPECT_FLOAT_EQ(ParseFloat(result.data), 88.5f);
 }
 
 TEST_F(AdapterRpcTest, SetThenGetRoundTrip)
 {
-    const auto setResult = canoe_->Call(setClient_, ToSpan(SetInt32Req("EV_BATTERY_LEVEL", 85)));
+    const auto setResult = canoe_->Call(setClient_, ToSpan(SetInt32Req("EV_CHARGE_STATE", 5)));
     ASSERT_EQ(setResult.status, Rpc::RpcCallStatus::Success);
     EXPECT_TRUE(setResult.data.empty()); // void method -> empty response
 
-    const auto getResult = canoe_->Call(getClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
+    const auto getResult = canoe_->Call(getClient_, ToSpan(GetReq("EV_CHARGE_STATE")));
     ASSERT_EQ(getResult.status, Rpc::RpcCallStatus::Success);
-    EXPECT_EQ(ParseInt32(getResult.data), 85);
+    EXPECT_EQ(ParseInt32(getResult.data), 5);
 }
 
 TEST_F(AdapterRpcTest, SetThenGetFloatRoundTrip)
 {
-    const auto setResult = canoe_->Call(setFloatClient_, ToSpan(SetFloatReq("CABIN_TEMP", 21.5f)));
+    const auto setResult = canoe_->Call(setFloatClient_, ToSpan(SetFloatReq("RANGE_REMAINING", 21.5f)));
     ASSERT_EQ(setResult.status, Rpc::RpcCallStatus::Success);
 
-    const auto getResult = canoe_->Call(getFloatClient_, ToSpan(GetReq("CABIN_TEMP")));
+    const auto getResult = canoe_->Call(getFloatClient_, ToSpan(GetReq("RANGE_REMAINING")));
     ASSERT_EQ(getResult.status, Rpc::RpcCallStatus::Success);
     EXPECT_FLOAT_EQ(ParseFloat(getResult.data), 21.5f);
 }
@@ -176,12 +246,87 @@ TEST_F(AdapterRpcTest, UnknownPropertyReturnsZero)
     EXPECT_EQ(ParseInt32(result.data), 0);
 }
 
+// The three types the VhalSimple API added beyond int32/float. VhalMockClient
+// stores whatever variant it is handed, so a set/get pair through the bridge
+// proves the whole chain: CANoe-shaped request bytes, the templated serdes, the
+// adapter's variant round trip, and the response encoding.
+TEST_F(AdapterRpcTest, SetThenGetInt64RoundTrip)
+{
+    const int64_t epoch = 1767225600000; // beyond 32 bits, so a truncation shows up
+    const auto setResult = canoe_->Call(setInt64Client_, ToSpan(SetInt64Req("ANDROID_EPOCH_TIME", epoch)));
+    ASSERT_EQ(setResult.status, Rpc::RpcCallStatus::Success);
+
+    const auto getResult = canoe_->Call(getInt64Client_, ToSpan(GetReq("ANDROID_EPOCH_TIME")));
+    ASSERT_EQ(getResult.status, Rpc::RpcCallStatus::Success);
+    EXPECT_EQ(ParseInt64(getResult.data), epoch);
+}
+
+TEST_F(AdapterRpcTest, SetThenGetStringRoundTrip)
+{
+    const auto setResult = canoe_->Call(setStringClient_, ToSpan(SetStringReq("INFO_VIN", "WVWZZZ1JZXW000001")));
+    ASSERT_EQ(setResult.status, Rpc::RpcCallStatus::Success);
+
+    const auto getResult = canoe_->Call(getStringClient_, ToSpan(GetReq("INFO_VIN")));
+    ASSERT_EQ(getResult.status, Rpc::RpcCallStatus::Success);
+    EXPECT_EQ(ParseString(getResult.data), "WVWZZZ1JZXW000001");
+}
+
+TEST_F(AdapterRpcTest, SetThenGetBytesRoundTrip)
+{
+    const std::vector<uint8_t> seed{0xDE, 0xAD, 0xBE, 0xEF, 0x00};
+    const auto setResult = canoe_->Call(setBytesClient_, ToSpan(SetBytesReq("STORAGE_ENCRYPTION_BINDING_SEED", seed)));
+    ASSERT_EQ(setResult.status, Rpc::RpcCallStatus::Success);
+
+    const auto getResult = canoe_->Call(getBytesClient_, ToSpan(GetReq("STORAGE_ENCRYPTION_BINDING_SEED")));
+    ASSERT_EQ(getResult.status, Rpc::RpcCallStatus::Success);
+    EXPECT_EQ(ParseBytes(getResult.data), seed); // embedded NUL must survive
+}
+
+// The version handshake: a CANoe configuration can confirm it speaks the same
+// dialect instead of discovering a contract mismatch as ServerNotReachable.
+TEST_F(AdapterRpcTest, GetApiVersionReportsTheContractVersion)
+{
+    const auto result = canoe_->Call(versionClient_, ToSpan(EmptyReq()));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+    EXPECT_EQ(ParseInt32(result.data), Api::kApiVersion);
+}
+
+// An unset property of a non-numeric type answers with an empty value rather
+// than throwing, which is the string/bytes counterpart of UnknownPropertyReturnsZero.
+TEST_F(AdapterRpcTest, UnknownStringPropertyReturnsEmpty)
+{
+    const auto result = canoe_->Call(getStringClient_, ToSpan(GetReq("NOT_A_REAL_PROPERTY")));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+    EXPECT_EQ(ParseString(result.data), "");
+
+    const auto asBytes = canoe_->Call(getBytesClient_, ToSpan(GetReq("NOT_A_REAL_PROPERTY")));
+    ASSERT_EQ(asBytes.status, Rpc::RpcCallStatus::Success);
+    EXPECT_TRUE(ParseBytes(asBytes.data).empty());
+}
+
+// Writing through the wrong method family is refused by the VHAL - the mock
+// mirrors the "expects FLOAT, not int32" error the real client throws - but
+// Set<Type> is a void method, so CANoe still sees Success. The only signal is the
+// bridge log, and the stored value being untouched. Worth pinning: it is the
+// write-side counterpart of WrongTypeReturnsZero.
+TEST_F(AdapterRpcTest, WrongTypedWriteIsRefusedButStillReportsSuccess)
+{
+    // EV_BATTERY_LEVEL is an AOSP FLOAT property, seeded 88.5.
+    const auto setResult = canoe_->Call(setClient_, ToSpan(SetInt32Req("EV_BATTERY_LEVEL", 7)));
+    EXPECT_EQ(setResult.status, Rpc::RpcCallStatus::Success) << "void method: the wire cannot carry the refusal";
+
+    const auto getResult = canoe_->Call(getFloatClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
+    ASSERT_EQ(getResult.status, Rpc::RpcCallStatus::Success);
+    EXPECT_FLOAT_EQ(ParseFloat(getResult.data), 88.5f) << "the refused write must not have changed the value";
+}
+
 // A property that exists but holds another type must not be mistaken for data.
-// VhalMockClient::SetProperty overwrites the stored variant with whatever it is
-// handed, so writing CABIN_TEMP as a float and then reading it through the int32
-// GetProperty reaches the adapter's type-mismatch branch. The VCDL methods carry
-// no status out-parameter, so 0 is still what CANoe receives - what changed is
-// that the bridge now logs which type it actually found instead of staying mute.
+// CABIN_TEMP is deliberately not an AOSP property name: the mock validates writes
+// against the AOSP table, so only a name outside that table can be stored with an
+// arbitrary type and then read back through the wrong method. That reaches the
+// adapter's type-mismatch branch. The VCDL methods carry no status
+// out-parameter, so 0 is still what CANoe receives - what changed is that the
+// bridge now logs which type it actually found instead of staying mute.
 TEST_F(AdapterRpcTest, WrongTypeReturnsZero)
 {
     const auto setResult = canoe_->Call(setFloatClient_, ToSpan(SetFloatReq("CABIN_TEMP", 21.5f)));
@@ -204,17 +349,17 @@ TEST_F(AdapterRpcTest, WrongTypeReturnsZero)
 // old, broken behavior) must NOT match the adapter's server.
 //
 // Proven by ordering, not by waiting: SetUp() established that a correctly
-// specified client matched, and the adapter creates all four servers in Init(),
+// specified client matched, and the adapter creates every server in Init(),
 // so its complete server set is known here.
 TEST_F(AdapterRpcTest, WrongFunctionNameDoesNotMatch)
 {
-    const auto result = canoe_->Call(badClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
+    const auto result = canoe_->Call(badClient_, ToSpan(GetReq("INFO_MODEL_YEAR")));
     EXPECT_EQ(result.status, Rpc::RpcCallStatus::ServerNotReachable);
 
     // ...while the correctly-named client on the same participant does match.
-    const auto ok = canoe_->Call(getClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
+    const auto ok = canoe_->Call(getClient_, ToSpan(GetReq("INFO_MODEL_YEAR")));
     ASSERT_EQ(ok.status, Rpc::RpcCallStatus::Success);
-    EXPECT_EQ(ParseInt32(ok.data), 75);
+    EXPECT_EQ(ParseInt32(ok.data), 2026);
 }
 
 } // namespace

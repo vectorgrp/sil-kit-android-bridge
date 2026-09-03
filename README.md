@@ -26,8 +26,9 @@ test benches.
 > - **Polling only.** The VHAL to SIL Kit *push* direction is not implemented.
 >   `AddPropertyChangedHandler` returns `0` and does nothing, so a CANoe test has
 >   to read values rather than being notified of changes.
-> - **Two value types reach SIL Kit.** Only `int32` and `float`. String, int64
->   and byte-array properties are modelled internally but have no route to CANoe.
+> - **The CANoe surface is deliberately small.** It is a named, versioned
+>   [Simple API](#the-vhalsimple-api): scalar get/set only. That is a scope
+>   decision, not a gap - see the section below for what is out and why.
 > - **Errors look like data on the wire.** An unknown property, a read the VHAL
 >   refused, and a type mismatch all answer `0` with `RpcCallStatus::Success`,
 >   because the VCDL methods carry no status out-parameter. From the response
@@ -42,28 +43,63 @@ test benches.
 >   the bridge through the built-in mock. Expect rough edges against real
 >   hardware, and please report them.
 
-## What it does
+## The VhalSimple API
 
 The bridge joins a SIL Kit simulation as a participant (default name
-`VhalBridge`) and serves four RPC methods, forwarding each to the VHAL:
+`VhalBridge`) and serves the **VhalSimple API**: a small, versioned,
+request/response surface for reading and writing vehicle properties, forwarding
+each call to the VHAL.
 
-| Method | Signature |
-|--------|-----------|
-| `GetProperty` | `int32 GetProperty(string name)` |
-| `SetProperty` | `void SetProperty(string name, int32 value)` |
-| `GetPropertyFloat` | `float GetPropertyFloat(string name)` |
-| `SetPropertyFloat` | `void SetPropertyFloat(string name, float value)` |
+| Type | Read | Write |
+|------|------|-------|
+| `int32` | `int32 GetInt32(string name)` | `void SetInt32(string name, int32 value)` |
+| `int64` | `int64 GetInt64(string name)` | `void SetInt64(string name, int64 value)` |
+| `float` | `float GetFloat(string name)` | `void SetFloat(string name, float value)` |
+| `string` | `string GetString(string name)` | `void SetString(string name, string value)` |
+| `bytes` | `bytes GetBytes(string name)` | `void SetBytes(string name, bytes value)` |
+
+plus `int32 GetApiVersion()`, which reports the contract version (currently `1`)
+so a CANoe configuration can check it speaks the same dialect. AOSP `BOOLEAN`
+properties travel over the `int32` methods as 0/1.
 
 Properties are addressed by their AOSP name (`EV_BATTERY_LEVEL`,
 `RANGE_REMAINING`, ...); the name-to-id mapping is generated from AOSP's
 `VehicleProperty.aidl` into `source/VhalProperty.hpp`.
 
+### Scope
+
+The API covers **every type the bridge models internally**. AOSP's `INT32_VEC`,
+`INT64_VEC`, `FLOAT_VEC` and `MIXED` properties are out of scope by design:
+`CarProperty` has no representation for them, so supporting them is a data-model
+change rather than a method addition. That is the line, and it is why the surface
+is called *simple* rather than *incomplete*.
+
+For the record, the CANoe side would not be the obstacle if we did add them - vCDL
+has `list<int32>` for a dynamic sequence and `array<uint8, N>` for a fixed one (a
+`typedef` is the attested way to use a sequence in return position). The blocker
+is `CarProperty::Value`. If you need vector properties, say so in an issue and
+that is the conversation to have.
+
+The API is also request/response only - there is no change notification. See the
+first bullet of the warning above.
+
+### The contract
+
+[source/VhalSimpleApi.hpp](source/VhalSimpleApi.hpp) and
+[examples/vector-canoe-se/VhalSimple.vcdl](examples/vector-canoe-se/VhalSimple.vcdl)
+are the two halves of one contract; the C++ header holds the identity constants,
+the method names and the wire format in one place, and everything else in the
+repository reads them from there.
+
 Each method is matched by SIL Kit on the **bare method name** plus three
-mandatory labels: `VirtualNetwork=Default`, `Namespace=VhalSilkit`,
-`Instance=vhalProperties`. Those are the values `sil-adapter-builder` generates
-from [examples/vector-canoe-se/VhalProperties.vcdl](examples/vector-canoe-se/VhalProperties.vcdl),
-so a CANoe participant built against that VCDL matches with no extra
-configuration.
+mandatory labels: `VirtualNetwork=Default`, `Namespace=VhalSimple`,
+`Instance=properties`. Those are the values `sil-adapter-builder` generates from
+the VCDL, so a CANoe participant built against it matches with no extra
+configuration. Override them with `--namespace`, `--instance` and
+`--virtual-network` to serve a different interface definition.
+
+A mismatch never fails loudly - SIL Kit simply does not pair client to server and
+every call returns `ServerNotReachable` - which is what `GetApiVersion` is for.
 
 ## Build
 
@@ -87,7 +123,13 @@ available packages. Windows is built and tested in CI as well.
 ## Quick start
 
 The fastest way to see the bridge work needs no Android device at all: `--mock`
-serves a handful of seeded properties from memory.
+serves an in-memory VHAL seeded with one property per type - `INFO_MODEL_YEAR`
+(int32), `ANDROID_EPOCH_TIME` (int64), `EV_BATTERY_LEVEL` (float), `INFO_VIN`
+(string), `STORAGE_ENCRYPTION_BINDING_SEED` (bytes) and a dozen more. Each value
+is distinctive, so a wrong read looks wrong rather than looking like a plausible
+zero. Every property carries the type AOSP declares for it, so the mock behaves
+like a device: use the method family that matches. The full seed is listed in
+[examples/vector-canoe-se/README.md](examples/vector-canoe-se/README.md).
 
 ```sh
 # 1. Start a SIL Kit registry (from your SIL Kit installation)
@@ -104,12 +146,23 @@ sil-kit-registry --listen-uri silkit://localhost:8500 &
 round-trip:
 
 ```
-Connecting participant 'silkit-client' to registry 'silkit://localhost:8500' (Namespace=VhalSilkit, Instance=vhalProperties, VirtualNetwork=Default)
+Connecting participant 'silkit-client' to registry 'silkit://localhost:8500' (Namespace=VhalSimple, Instance=properties, VirtualNetwork=Default)
+Connected to the VhalSimple API v1.
 No assignments on the command line; reading PROPERTY=value lines from stdin (Ctrl+D / Ctrl+Z to end).
-RANGE_REMAINING=1235
-SET  RANGE_REMAINING = 1235 (float) -> Success
-GET  RANGE_REMAINING = 1235 (float)
+EV_BATTERY_LEVEL=88.5
+SET  EV_BATTERY_LEVEL = 88.5 (float) -> Success
+GET  EV_BATTERY_LEVEL = 88.5 (float)
+ANDROID_EPOCH_TIME=1767225600000
+SET  ANDROID_EPOCH_TIME = 1767225600000 (int64) -> Success
+GET  ANDROID_EPOCH_TIME = 1767225600000 (int64)
+INFO_VIN=WVWZZZ1JZXW000001
+SET  INFO_VIN = 'WVWZZZ1JZXW000001' (string) -> Success
+GET  INFO_VIN = WVWZZZ1JZXW000001 (string)
 ```
+
+The method family is chosen from the AOSP property-id type bits, so a plain
+`NAME=value` line picks the right one. Byte properties are written and shown as
+hex.
 
 ### Against a real Android VHAL
 
@@ -142,9 +195,18 @@ sil-kit-android-bridge [OPTIONS]
   -s, --synchronized           Enable coordinated lifecycle mode
   -l, --log        <level>     Log level: Trace|Debug|Info|Warn|Error|Critical|Off (default: Info)
   -c, --configuration <file>   Path to SIL Kit participant config YAML
+  -N, --namespace  <name>      VCDL namespace to serve (default: VhalSimple)
+  -i, --instance   <name>      VCDL interface object to serve (default: properties)
+      --virtual-network <name> VirtualNetwork matching label (default: Default)
   -v, --version                Print version information
   -h, --help                   Print this help
 ```
+
+`--namespace`, `--instance` and `--virtual-network` are the three labels SIL Kit
+matches on; the defaults pair with the stock `VhalSimple.vcdl`. `silkit-client`
+takes the same three options, so both sides can be pointed at a different
+interface definition together. (`--virtual-network` has no short form on the
+bridge because `-V` is already `--vhal-uri`.)
 
 `--log` and `--configuration` are mutually exclusive: the configuration file
 carries its own logging setup.

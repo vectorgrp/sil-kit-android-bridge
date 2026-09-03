@@ -27,20 +27,22 @@ target_include_directories(Test_VhalMockClient PRIVATE ${SOURCE_DIR})
 skab_copy_runtime_dlls(Test_VhalMockClient)
 gtest_discover_tests(Test_VhalMockClient)
 
-# Test_VhalSilKitSerdes: guards the CANoe-compatible binary wire format produced
-# by VhalSilKitSerdes.hpp. Uses only the header-only SilKit SerDes utilities.
-add_executable(Test_VhalSilKitSerdes
-    Test_VhalSilKitSerdes.cpp
+# Test_VhalSimpleApi: guards the VhalSimple contract - the identity constants that
+# must match VhalSimple.vcdl, and the CANoe-compatible binary wire format. Uses
+# only the SilKit SerDes utilities.
+add_executable(Test_VhalSimpleApi
+    Test_VhalSimpleApi.cpp
+    ${SOURCE_DIR}/VhalSimpleApi.cpp
 )
-target_link_libraries(Test_VhalSilKitSerdes
+target_link_libraries(Test_VhalSimpleApi
     PRIVATE
         GTest::gtest_main
         SilKit::SilKit
         spdlog::spdlog
 )
-target_include_directories(Test_VhalSilKitSerdes PRIVATE ${SOURCE_DIR})
-skab_copy_runtime_dlls(Test_VhalSilKitSerdes)
-gtest_discover_tests(Test_VhalSilKitSerdes)
+target_include_directories(Test_VhalSimpleApi PRIVATE ${SOURCE_DIR})
+skab_copy_runtime_dlls(Test_VhalSimpleApi)
+gtest_discover_tests(Test_VhalSimpleApi)
 
 # Test_VhalGrpcClient: covers the pure VHAL translation layer - URI validation,
 # VehiclePropValue -> CarProperty, and the StatusCode gating on read and write
@@ -67,6 +69,7 @@ gtest_discover_tests(Test_VhalGrpcClient)
 # mock client, so no gRPC/proto dependency.
 add_executable(ITest_VhalSilKitAdapter
     ITest_VhalSilKitAdapter.cpp
+    ${SOURCE_DIR}/VhalSimpleApi.cpp
 )
 target_link_libraries(ITest_VhalSilKitAdapter
     PRIVATE
@@ -99,7 +102,10 @@ skab_copy_runtime_dlls(grpc-client-test)
 # silkit-client: connects to the sil-kit-android-bridge (at registry URI passed in as
 # argv[1]) and exercises the SIL Kit RPC side of the bridge:.
 # add_test/gtest_discover_tests.
-add_executable(silkit-client silkit-client.cpp)
+add_executable(silkit-client
+    silkit-client.cpp
+    ${SOURCE_DIR}/VhalSimpleApi.cpp
+)
 target_link_libraries(silkit-client
     PRIVATE
         SilKit::SilKit
