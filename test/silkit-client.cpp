@@ -311,7 +311,10 @@ Logging:
             else
                 print("GET  {} FAILED: {}", name, StatusName(res.status));
         };
-        const auto req = ToSpan(GetReq(name));
+        // GetReq returns by value and ToSpan does not own: the buffer has to outlive
+        // every Call below, so it needs a name rather than being a temporary.
+        const auto reqBytes = GetReq(name);
+        const auto req = ToSpan(reqBytes);
         switch (WireTypeFor(name))
         {
         case WireType::Float:
@@ -414,9 +417,13 @@ private:
         for (;;)
         {
             auto promise = std::make_shared<std::promise<CallResult>>();
-            void* ctx = promise.get();
+            void* ctx;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
+                // Never the promise's address: this loop frees promises as it
+                // retries, and the allocator can hand the same address back, which
+                // would let a late result complete a later call.
+                ctx = reinterpret_cast<void*>(nextContext_++);
                 pending_[ctx] = promise;
             }
 
@@ -449,6 +456,7 @@ private:
     Orchestration::ILifecycleService* lifecycle_{nullptr};
     std::future<Orchestration::ParticipantState> finalState_;
 
+    std::uintptr_t nextContext_{1};
     Rpc::IRpcClient* getInt64_{nullptr};
     Rpc::IRpcClient* setInt64_{nullptr};
     Rpc::IRpcClient* getString_{nullptr};

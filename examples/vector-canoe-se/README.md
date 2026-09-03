@@ -119,26 +119,29 @@ a type mismatch. Two consequences worth knowing:
 
 ## Caveats
 
-- **`GetBytes` is confirmed; `SetBytes` is not.** Reading
-  `STORAGE_ENCRYPTION_BINDING_SEED` from CANoe against `--mock` renders the seeded
-  `DE AD BE EF` correctly in the trace window. That settles the part that was
-  hardest to reason about: `sil-adapter-builder` and SIL Kit SerDes agree on how
-  the vCDL `bytes` type goes on the wire - a `uint32` length prefix followed by
-  raw bytes, byte-identical to a `string`. (For the record, `bytes` is a primitive
-  sequence type; there is no `[]` suffix form in the language, so neither
-  `uint8[]` nor `char[]` parses.) What is still unexercised is the write
-  direction - whether CAPL marshals a char array into a `bytes` parameter the way
-  `CallAsync` expects. That is step `6.2` of `CheckAllPropertyTypes`. If it fails,
-  delete the two `Bytes` methods from the vCDL and the two wrappers from
-  `VhalUtils.cin`: the bridge serves methods no vCDL declares without complaining,
-  so the other nine are unaffected.
-- The CAPL helpers for `string` and `bytes` copy the result into a caller-supplied
-  buffer with `strncpy`; size the buffer for the properties you read. For `bytes`
-  that also means a payload containing `0x00` is cut short - the helpers carry
-  bytes in a char array, which is NUL-terminated. `CheckAllPropertyTypes`
-  therefore round-trips a printable payload (`CAFE`). A binary-safe helper would
-  need an explicit length alongside the buffer; the bridge itself has no such
-  limit, it is purely the CAPL side.
+- **`bytes` in CAPL is a plain `byte` array, not a `char` array.** A vCDL `bytes`
+  parameter is passed to `CallAsync` as `byte value[]` - the same shape Vector's
+  own IoTEnablerBLE sample uses for `consumed method result write(string uuid,
+  bytes data);`. A `char` array does not compile ("types of parameters do not
+  match"), and neither does a `[]` suffix in the vCDL itself, so `uint8[]` and
+  `char[]` are both wrong there too. Reading a `bytes` result into a byte array
+  uses `memcpy(byte dest[], bytes source)`. One consequence: byte payloads
+  containing `0x00` are carried correctly, since nothing is NUL-terminated.
+  Reading is confirmed end to end - `DE AD BE EF` renders in the CANoe trace
+  window, which also settles that `sil-adapter-builder` and SIL Kit SerDes agree
+  on the wire format (a `uint32` length prefix then raw bytes, identical to
+  `string`). The write direction is step `6.2` of `CheckAllPropertyTypes` and has
+  not been run yet.
+- The CAPL helpers copy the result into a caller-supplied buffer, so size it for
+  the properties you read. `VhalGetBytes` also returns the length, taken from
+  `elcount()` on the result, which is how Vector's own samples bound a `bytes`
+  read; `VhalGetString` uses `strncpy` and does not.
+- One inference remains in `VhalGetBytes`: no sample on hand reads a method whose
+  *return type* is `bytes` via `cc.Result` - they all read an `out bytes`
+  parameter instead. `memcpy(dest, cc.Result)` and `elcount(cc.Result)` follow the
+  documented `memcpy(byte dest[], bytes source)` overload and the `out`-parameter
+  pattern, but that specific combination is extrapolated rather than copied from a
+  working example. Step `6.1` is what proves it.
 - The minimum CANoe SE version is not pinned here. The configuration files
   declare their own schema versions (`venvironment.yaml` 4.0.0, the test unit and
   test tree 2.0.0), which is the only version information this directory carries.

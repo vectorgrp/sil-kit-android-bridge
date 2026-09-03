@@ -111,32 +111,36 @@ int VhalGetString(char name[], char value[])
 
 // ---- bytes ----
 
-// The read direction is confirmed: VhalGetBytes against --mock renders the
-// seeded DE AD BE EF correctly in the CANoe trace window, which also settles
-// that sil-adapter-builder and SIL Kit SerDes agree on the encoding of the vCDL
-// "bytes" type - a uint32 length prefix followed by raw bytes.
+// A vCDL "bytes" parameter is a plain CAPL byte array at the call site. Vector's
+// own IoTEnablerBLE sample declares
+//   consumed method result write(string name, bytes data);
+// and calls it as write.CallAsync("RSSI/value", rssi) with a "byte rssi[1]",
+// which is the same (string, bytes) shape as SetBytes here. A char array does
+// not compile - that is the mapping for vCDL "string" - and the CAPL compiler
+// reports "types of parameters do not match".
 //
-// The write direction is not confirmed. A char array is the documented CAPL
-// representation for byte data in distributed-object bindings, so that is what
-// VhalSetBytes passes; whether CallAsync marshals it as the vCDL "bytes"
-// parameter expects has not been exercised. Note the char array is also
-// NUL-terminated, so a payload containing 0x00 is cut short here - not in the
-// bridge. Please report what your CANoe does.
-int VhalSetBytes(char name[], char value[])
+// elcount() on a bytes value gives the number of bytes actually present, which
+// is how the same sample bounds its reads, so VhalGetBytes can report the length
+// rather than leaving the caller to guess. memcpy copies the whole value, so
+// size the destination for the largest property you read; the length is returned
+// so an oversized result is at least detectable.
+int VhalSetBytes(char name[], byte value[])
 {
     callcontext properties.SetBytes cc;
     cc = properties.SetBytes.CallAsync(name, value);
     return testWaitForAnswer(cc, maxWait);
 }
 
-int VhalGetBytes(char name[], char value[])
+int VhalGetBytes(char name[], byte value[], long& length)
 {
     int status = -1;
     callcontext properties.GetBytes cc;
     cc = properties.GetBytes.CallAsync(name);
     status = testWaitForAnswer(cc, maxWait);
+    length = 0;
     if(status > 0) {
-        strncpy(value, cc.Result, elcount(value));
+        length = elcount(cc.Result);
+        memcpy(value, cc.Result);
     }
     return status;
 }
