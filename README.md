@@ -36,12 +36,14 @@ test benches.
 >   the wire cannot say, the bridge log now does: all three cases are logged, in
 >   both the read and the write direction, and a non-OK VHAL `StatusCode` is no
 >   longer converted into a plausible-looking number.
-> - **The networked gRPC path is untested.** The translation layer is covered --
->   `source/VhalGrpcConvert.cpp` handles URI validation, value conversion and the
->   `StatusCode` gating, and `test/Test_VhalGrpcClient.cpp` exercises it. The stub
->   that actually talks to an Android device has no automated coverage; CI drives
->   the bridge through the built-in mock. Expect rough edges against real
->   hardware, and please report them.
+> - **The networked gRPC path has no automated coverage.** The translation layer
+>   is covered -- `source/VhalGrpcConvert.cpp` handles URI validation, value
+>   conversion, `StatusCode` gating and the `CarProperty`-to-protobuf mapping, and
+>   `test/Test_VhalGrpcClient.cpp` exercises it. The stub that actually talks to a
+>   device is driven only by hand: CI runs against the built-in mock. The full
+>   chain (CANoe -> SIL Kit -> bridge -> gRPC -> VHAL) has been validated manually
+>   against a live Cuttlefish image, but nothing stops it regressing between
+>   releases. Expect rough edges against real hardware, and please report them.
 
 ## The VhalSimple API
 

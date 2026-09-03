@@ -156,12 +156,11 @@ a type mismatch. Two consequences worth knowing:
   the properties you read. `VhalGetBytes` also returns the length, taken from
   `elcount()` on the result, which is how Vector's own samples bound a `bytes`
   read; `VhalGetString` uses `strncpy` and does not.
-- One inference remains in `VhalGetBytes`: no sample on hand reads a method whose
-  *return type* is `bytes` via `cc.Result` - they all read an `out bytes`
-  parameter instead. `memcpy(dest, cc.Result)` and `elcount(cc.Result)` follow the
-  documented `memcpy(byte dest[], bytes source)` overload and the `out`-parameter
-  pattern, but that specific combination is extrapolated rather than copied from a
-  working example. Step `6.1` is what proves it.
+- `memcpy(dest, cc.Result)` and `elcount(cc.Result)` on a `bytes` *return* value
+  were extrapolated from the documented `memcpy(byte dest[], bytes source)`
+  overload, since every sample on hand reads an `out bytes` parameter instead.
+  That extrapolation is now confirmed: the test unit compiles and step `5.1`
+  passes against both `--mock` and a live Cuttlefish VHAL.
 - The minimum CANoe SE version is not pinned here. The configuration files
   declare their own schema versions (`venvironment.yaml` 4.0.0, the test unit and
   test tree 2.0.0), which is the only version information this directory carries.
