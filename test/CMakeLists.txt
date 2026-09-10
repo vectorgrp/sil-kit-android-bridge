@@ -11,6 +11,11 @@ include(GoogleTest)  # provides gtest_discover_tests
 
 set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/source)
 
+# Hang guard for every registered case. Far above SkParticipant::kWatchdog (60s),
+# which is what a stuck call hits first and fails on with a usable message; this
+# only stops a wedged process from hanging CI until the job times out.
+set(SKAB_TEST_TIMEOUT 180)
+
 # ---- Unit tests (gtest, registered with CTest via gtest_discover_tests) ----
 
 # Test_VhalMockClient: exercises the in-memory mock VHAL client. No SIL Kit /
@@ -25,7 +30,7 @@ target_link_libraries(Test_VhalMockClient
 )
 target_include_directories(Test_VhalMockClient PRIVATE ${SOURCE_DIR})
 skab_copy_runtime_dlls(Test_VhalMockClient)
-gtest_discover_tests(Test_VhalMockClient)
+gtest_discover_tests(Test_VhalMockClient PROPERTIES TIMEOUT ${SKAB_TEST_TIMEOUT})
 
 # Test_VhalSimpleApi: guards the VhalSimple contract - the identity constants that
 # must match VhalSimple.vcdl, and the CANoe-compatible binary wire format. Uses
@@ -42,7 +47,7 @@ target_link_libraries(Test_VhalSimpleApi
 )
 target_include_directories(Test_VhalSimpleApi PRIVATE ${SOURCE_DIR})
 skab_copy_runtime_dlls(Test_VhalSimpleApi)
-gtest_discover_tests(Test_VhalSimpleApi)
+gtest_discover_tests(Test_VhalSimpleApi PROPERTIES TIMEOUT ${SKAB_TEST_TIMEOUT})
 
 # Test_VhalGrpcClient: covers the pure VHAL translation layer - URI validation,
 # VehiclePropValue -> CarProperty, and the StatusCode gating on read and write
@@ -60,7 +65,7 @@ target_link_libraries(Test_VhalGrpcClient
 )
 target_include_directories(Test_VhalGrpcClient PRIVATE ${SOURCE_DIR})
 skab_copy_runtime_dlls(Test_VhalGrpcClient)
-gtest_discover_tests(Test_VhalGrpcClient)
+gtest_discover_tests(Test_VhalGrpcClient PROPERTIES TIMEOUT ${SKAB_TEST_TIMEOUT})
 
 # ---- Integration tests (self-contained: in-process registry via the Vendor API) ----
 
@@ -79,7 +84,7 @@ target_link_libraries(ITest_VhalSilKitAdapter
 )
 target_include_directories(ITest_VhalSilKitAdapter PRIVATE ${SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 skab_copy_runtime_dlls(ITest_VhalSilKitAdapter)
-gtest_discover_tests(ITest_VhalSilKitAdapter)
+gtest_discover_tests(ITest_VhalSilKitAdapter PROPERTIES TIMEOUT ${SKAB_TEST_TIMEOUT})
 
 # ITest_VhalGrpcClient: drives the real VhalGrpcClient against a programmable
 # fake VehicleServer (FakeVehicleServer.hpp) over gRPC's in-process transport.
@@ -98,7 +103,7 @@ target_link_libraries(ITest_VhalGrpcClient
 )
 target_include_directories(ITest_VhalGrpcClient PRIVATE ${SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 skab_copy_runtime_dlls(ITest_VhalGrpcClient)
-gtest_discover_tests(ITest_VhalGrpcClient)
+gtest_discover_tests(ITest_VhalGrpcClient PROPERTIES TIMEOUT ${SKAB_TEST_TIMEOUT})
 
 # ITest_VhalBridgeGrpc: the whole chain a CANoe test bench exercises, minus
 # CANoe and minus the device - faked consumer over SIL Kit -> VhalSilKitAdapter
@@ -119,7 +124,7 @@ target_link_libraries(ITest_VhalBridgeGrpc
 )
 target_include_directories(ITest_VhalBridgeGrpc PRIVATE ${SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 skab_copy_runtime_dlls(ITest_VhalBridgeGrpc)
-gtest_discover_tests(ITest_VhalBridgeGrpc)
+gtest_discover_tests(ITest_VhalBridgeGrpc PROPERTIES TIMEOUT ${SKAB_TEST_TIMEOUT})
 
 # ---- Manual developer tools (built, but NOT registered with CTest) ----
 # grpc-client-test: connects to a real VHAL gRPC server (pass the socket/URI as

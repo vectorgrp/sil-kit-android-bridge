@@ -364,7 +364,7 @@ TEST_F(AdapterRpcTest, WrongTypeReturnsZero)
 // so its complete server set is known here.
 TEST_F(AdapterRpcTest, WrongFunctionNameDoesNotMatch)
 {
-    const auto result = canoe_->Call(badClient_, ToSpan(GetReq("INFO_MODEL_YEAR")));
+    const auto result = canoe_->CallOnce(badClient_, ToSpan(GetReq("INFO_MODEL_YEAR")));
     EXPECT_EQ(result.status, Rpc::RpcCallStatus::ServerNotReachable);
 
     // ...while the correctly-named client on the same participant does match.
