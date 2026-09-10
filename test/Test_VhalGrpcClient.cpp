@@ -375,9 +375,9 @@ TEST(VhalConvertConfig, PerAreaAccessIsUsedWhenTheTopLevelAccessIsNone)
     EXPECT_TRUE(info.IsWritable());
 }
 
-// The fallback is a fallback: a top-level access that says something wins, so a
-// restrictive area cannot narrow a property the VHAL declared globally.
-TEST(VhalConvertConfig, TopLevelAccessWinsOverAreaConfigs)
+// Union means union in both directions. A restrictive area cannot narrow a
+// property the VHAL declared globally...
+TEST(VhalConvertConfig, ARestrictiveAreaDoesNotNarrowTheTopLevelAccess)
 {
     proto::VehiclePropConfig c;
     c.set_prop(IdOf(kFloatProp));
@@ -387,6 +387,21 @@ TEST(VhalConvertConfig, TopLevelAccessWinsOverAreaConfigs)
     const auto info = VhalConvert::ToPropertyInfo(c);
     EXPECT_TRUE(info.IsReadable());
     EXPECT_TRUE(info.IsWritable());
+}
+
+// ...and a permissive area widens a top level that states less. Reading the
+// areas only when the top level is NONE would report this property as
+// not-writable, which is the intersection rule in disguise.
+TEST(VhalConvertConfig, APermissiveAreaWidensAStatedTopLevelAccess)
+{
+    proto::VehiclePropConfig c;
+    c.set_prop(IdOf(kFloatProp));
+    c.set_access(proto::VehiclePropertyAccess::READ);
+    c.add_area_configs()->set_access(proto::VehiclePropertyAccess::READ_WRITE);
+
+    const auto info = VhalConvert::ToPropertyInfo(c);
+    EXPECT_TRUE(info.IsReadable());
+    EXPECT_TRUE(info.IsWritable()) << "an area declares the write, so the property supports it";
 }
 
 TEST(VhalConvertWriteStatus, AllOkYieldsNoError)

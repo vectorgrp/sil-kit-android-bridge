@@ -404,6 +404,28 @@ TEST_F(GrpcClientTest, GetPropertyInfoUsesPerAreaAccessWhenThatIsAllTheVhalState
     EXPECT_TRUE(info->IsReadable());
 }
 
+// A vendor property: a real id the VHAL configures, with no entry in the
+// compiled-in AOSP table. VehicleProperty_GetNameById synthesises
+// "UNKNOWN_<id>" for it, so the client keys the table under a name that
+// VehicleProperty_GetIdByName cannot resolve. The id it reports is the VHAL's,
+// which is emphatically not 0 - anything deriving "is this a known AOSP name"
+// from PropertyInfo::id gets the wrong answer here, and only here.
+TEST_F(GrpcClientTest, GetPropertyInfoHandlesAVendorPropertyOutsideTheAospTable)
+{
+    // VENDOR group | INT32 | GLOBAL area, the encoding a vendor id uses.
+    constexpr int32_t kVendorId = 0x21400001;
+    ASSERT_EQ(VehicleProperty_GetIdByName(VehicleProperty_GetNameById(kVendorId)), 0)
+        << "fixture assumption: this id must not be in the AOSP table";
+
+    Server().SeedConfig(kVendorId, vhal::VehiclePropertyAccess::READ_WRITE);
+
+    const auto info = client_->GetPropertyInfo(VehicleProperty_GetNameById(kVendorId));
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->id, kVendorId);
+    EXPECT_TRUE(info->IsReadable());
+    EXPECT_EQ(info->type, CarPropertyType::Int32) << "a vendor id encodes its type in the same bits";
+}
+
 // The table is streamed once. Proved by ordering rather than by timing: the
 // first call establishes the cache, and only then is the transport broken. A
 // second call that still answers can only be answering from memory.

@@ -94,6 +94,12 @@ public:
             logger_->Info(fmt::format(formatString, std::forward<Args>(args)...));
     }
     template<typename... Args>
+    void LogWarn(fmt::format_string<Args...> formatString, Args&&... args)
+    {
+        if (logger_)
+            logger_->Warn(fmt::format(formatString, std::forward<Args>(args)...));
+    }
+    template<typename... Args>
     void LogError(fmt::format_string<Args...> formatString, Args&&... args)
     {
         if (logger_)
@@ -234,6 +240,25 @@ Logging:
         throw std::runtime_error("VhalSilKitAdapter: Failed health check for IVhalClient (check VHAL gRPC connection)");
     }
     LogInfo("Client health check passed");
+
+    // Warm the property configuration table before anyone can call in. On a real
+    // device this streams around a thousand configs, and the first caller would
+    // otherwise pay for all of it: CANoe's testWaitForAnswer budget in the
+    // shipped example is 100 ms, and nothing else in startup touches the table.
+    // Doing it here also surfaces a broken config stream at startup rather than
+    // in the middle of a test run.
+    //
+    // Not fatal. The value path does not need this table, and GetPropertyStatus
+    // retries on its next call rather than caching the failure.
+    try
+    {
+        const auto configured = client_->GetAllProperties();
+        LogInfo("Property configuration table loaded: {} properties", configured.size());
+    }
+    catch (const std::exception& e)
+    {
+        LogWarn("Could not preload the property configuration table ({}); GetPropertyStatus will retry", e.what());
+    }
 }
 
 inline void VhalSilKitAdapter::SetupRpcServer()
@@ -318,14 +343,17 @@ inline void VhalSilKitAdapter::RegisterPropertyStatusAccessor(const char* method
                                   [this, method](Rpc::IRpcServer* srv, const Rpc::RpcCallEvent& ev) {
         // Unlike the Get<Type> handlers, this one does not swallow a failure
         // into a default value - that ambiguity is what the method exists to
-        // remove. kAbsent is only for a request with no readable name in it:
-        // without a name there is nothing to report a status about.
-        auto status = VhalSimpleApi::PropertyStatus::kAbsent;
+        // remove. The only way to reach this catch is a request that could not
+        // be decoded, i.e. a wire-format mismatch between CANoe and the bridge,
+        // and answering kAbsent for that would present a framing bug as "every
+        // name I try is unknown" - the single most misleading thing this method
+        // could say, on the failure most likely to happen during integration.
+        auto status = VhalSimpleApi::PropertyStatus::kQueryFailed;
         try
         {
             const auto name = VhalSimpleApi::DeserializeGetRequest(ev.argumentData);
             status = PropertyStatusOf(name);
-            LogDebug("{}('{}') -> 0x{:08X}", method, name, status);
+            LogDebug("{}('{}') -> 0x{:08X}", method, name, static_cast<uint32_t>(status));
         }
         catch (const std::exception& e)
         {
@@ -338,46 +366,56 @@ inline void VhalSilKitAdapter::RegisterPropertyStatusAccessor(const char* method
 inline auto VhalSilKitAdapter::PropertyStatusOf(const std::string& propertyName) -> int32_t
 {
     namespace S = VhalSimpleApi::PropertyStatus;
+    namespace Aosp = android::hardware::automotive::vehicle;
 
-    auto flags = S::kAbsent;
-    auto type = VhalSimpleApi::TypeCode::None;
+    // Answered from the compiled-in table, never from the backend. Asking the
+    // client instead would make the bit mean different things per backend: the
+    // mock resolves ids from the AOSP table and reports 0 for an ad-hoc name,
+    // but VhalGrpcClient carries the VHAL's own id, which is non-zero for a
+    // vendor property whose synthesised "UNKNOWN_<id>" name is provably not in
+    // the table. That is the silent mock/device divergence this whole struct
+    // was shaped to avoid, so the bit is derived where it is defined.
+    const auto aospId = Aosp::VehicleProperty_GetIdByName(propertyName);
+    const auto offlineFlags = (aospId != 0) ? S::kKnownName : S::kAbsent;
+    const auto offlineType =
+        (aospId != 0) ? ToTypeCode(ToCarPropertyType(Aosp::getPropertyType(aospId))) : VhalSimpleApi::TypeCode::None;
 
+    // The configuration table is cached after its first read, so a lookup alone
+    // cannot notice a VHAL that has since died or been swapped underneath us -
+    // it would keep describing the previous vehicle with full confidence. One
+    // health round trip on a diagnostic call is what keeps the sign bit
+    // meaningful for the whole session rather than only until the cache warms.
     try
     {
+        if (!client_->CheckHealth())
+        {
+            LogError("VhalSilKitAdapter::PropertyStatusOf('{}'): the VHAL is not healthy", propertyName);
+            return VhalSimpleApi::MakeStatus(offlineFlags | S::kQueryFailed, offlineType);
+        }
+
         if (auto info = client_->GetPropertyInfo(propertyName))
         {
-            flags |= S::kExists;
+            auto flags = offlineFlags | S::kExists;
             if (info->IsReadable())
                 flags |= S::kReadable;
             if (info->IsWritable())
                 flags |= S::kWritable;
-            // id is 0 for a name outside the AOSP table, which is how a value
-            // stored under an ad-hoc name reports as existing but unknown.
-            if (info->id != 0)
-                flags |= S::kKnownName;
-            type = ToTypeCode(info->type);
-            return VhalSimpleApi::MakeStatus(flags, type);
+            // The backend knows the type even for a name AOSP does not: a
+            // vendor property id encodes its type in the same bits.
+            return VhalSimpleApi::MakeStatus(flags, ToTypeCode(info->type));
         }
     }
     catch (const std::exception& e)
     {
         // A failed lookup is not an absence. kAbsent would say the property does
-        // not exist; the sign bit says the bridge could not ask. What follows is
-        // answered offline, so the caller still learns whether the name is real.
+        // not exist; the sign bit says the bridge could not ask.
         LogError("VhalSilKitAdapter::PropertyStatusOf('{}'): {}", propertyName, e.what());
-        flags |= S::kQueryFailed;
+        return VhalSimpleApi::MakeStatus(offlineFlags | S::kQueryFailed, offlineType);
     }
 
-    // Either the backend does not have this property, or it could not be asked.
-    // Both cases can still say whether AOSP knows the name and which accessor it
-    // would need, with no VHAL round trip.
-    const auto id = android::hardware::automotive::vehicle::VehicleProperty_GetIdByName(propertyName);
-    if (id != 0)
-    {
-        flags |= S::kKnownName;
-        type = ToTypeCode(ToCarPropertyType(android::hardware::automotive::vehicle::getPropertyType(id)));
-    }
-    return VhalSimpleApi::MakeStatus(flags, type);
+    // The VHAL answered and does not configure this property. Whether AOSP knows
+    // the name, and which accessor it would need, are still worth saying.
+    return VhalSimpleApi::MakeStatus(offlineFlags, offlineType);
 }
 
 template<typename T>

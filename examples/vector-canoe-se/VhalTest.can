@@ -203,14 +203,22 @@ export testcase CheckAllPropertyTypes()
     // read/write, against a real VHAL it is read-only, so the access bits are
     // reported rather than asserted; what must hold either way is that the
     // property is there and that the bridge recommends the float accessor.
+    // Readable and known-name are asserted, not just printed: a bridge that
+    // reported NONE for every property - the exact failure the per-area access
+    // handling exists to prevent - would otherwise pass this step. Writability
+    // is only reported, because EV_BATTERY_LEVEL is read/write against --mock
+    // and read-only against a real VHAL.
     status = VhalGetPropertyStatus("EV_BATTERY_LEVEL", propStatus);
-    if (status > 0 && (propStatus & kVhalPropExists) && VhalPropertyType(propStatus) == kVhalTypeFloat) {
-        testStepPass("7.1", "GetPropertyStatus(EV_BATTERY_LEVEL) = 0x%X (readable=%d, writable=%d)",
-                     propStatus, (propStatus & kVhalPropReadable) != 0, (propStatus & kVhalPropWritable) != 0);
+    if (status > 0 && (propStatus & kVhalPropExists) && (propStatus & kVhalPropReadable)
+        && (propStatus & kVhalPropKnownName) && VhalPropertyType(propStatus) == kVhalTypeFloat) {
+        testStepPass("7.1", "GetPropertyStatus(EV_BATTERY_LEVEL) = 0x%X (writable=%d)",
+                     propStatus, (propStatus & kVhalPropWritable) != 0);
     } else if (status > 0 && propStatus < 0) {
         testStepFail("7.1", "the bridge could not reach the VHAL (0x%X)", propStatus);
+    } else if (status <= 0) {
+        testStepFail("7.1", "no answer (status=%d): the bridge does not serve GetPropertyStatus, or the labels do not match.", status);
     } else {
-        testStepFail("7.1", "GetPropertyStatus did not answer usably: status=%d, value=0x%X", status, propStatus);
+        testStepFail("7.1", "GetPropertyStatus(EV_BATTERY_LEVEL) = 0x%X, expected at least exists|readable|known-name and a float accessor", propStatus);
     }
 
     // The pair that makes step 6.1 above diagnosable: both reads answer 0, but

@@ -43,6 +43,14 @@ constexpr auto kInt64Name = "ANDROID_EPOCH_TIME";
 constexpr auto kFloatName = "EV_BATTERY_LEVEL";
 constexpr auto kStringName = "INFO_VIN";
 constexpr auto kBytesName = "STORAGE_ENCRYPTION_BINDING_SEED";
+// Declared write-only by the fake below. A real VHAL has such properties, and
+// nothing else in the suite drives WRITE-only access end to end.
+constexpr auto kWriteOnlyName = "HVAC_TEMPERATURE_SET";
+// A real AOSP float property that the fake never configures.
+constexpr auto kUnconfiguredName = "TIRE_PRESSURE";
+// VENDOR group | INT32 | GLOBAL: a property a VHAL may configure that has no
+// entry in the compiled-in AOSP table.
+constexpr int32_t kVendorId = 0x21400001;
 
 const std::vector<uint8_t> kSeed{0xDE, 0xAD, 0xBE, 0xEF};
 
@@ -59,6 +67,16 @@ protected:
         Server().SeedFloat(VehicleProperty_GetIdByName(kFloatName), 88.5f);
         Server().SeedString(VehicleProperty_GetIdByName(kStringName), "WVWZZZ1JZXW000001");
         Server().SeedBytes(VehicleProperty_GetIdByName(kBytesName), kSeed);
+
+        // Access has to be declared before Init: the adapter preloads the
+        // property configuration table at startup, so a config seeded after
+        // that point is intentionally not visible. That is the same ordering a
+        // real VHAL imposes, where the table is fixed by the time it accepts
+        // connections.
+        Server().SeedConfig(VehicleProperty_GetIdByName(kFloatName), vhal::VehiclePropertyAccess::READ);
+        Server().SeedConfig(VehicleProperty_GetIdByName(kInt32Name), vhal::VehiclePropertyAccess::READ_WRITE);
+        Server().SeedConfig(VehicleProperty_GetIdByName(kWriteOnlyName), vhal::VehiclePropertyAccess::WRITE);
+        Server().SeedConfig(kVendorId, vhal::VehiclePropertyAccess::READ_WRITE);
 
         adapter_.Init(registry_.Uri(), "VhalBridge", /*config*/ "", /*log*/ "Warn",
                       /*useSynchronized*/ false, std::make_unique<VhalGrpcClient>(fake_->Channel()),
@@ -247,7 +265,6 @@ TEST_F(BridgeGrpcTest, VhalTransportFailureIsReportedAsTheDefaultAndTheBridgeSur
 TEST_F(BridgeGrpcTest, PropertyStatusCarriesTheVhalDeclaredAccessToTheConsumer)
 {
     namespace S = Api::PropertyStatus;
-    Server().SeedConfig(VehicleProperty_GetIdByName(kFloatName), vhal::VehiclePropertyAccess::READ);
 
     const auto result = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kFloatName)));
     ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
@@ -258,6 +275,80 @@ TEST_F(BridgeGrpcTest, PropertyStatusCarriesTheVhalDeclaredAccessToTheConsumer)
     EXPECT_FALSE(status & S::kWritable) << "the VHAL declared this property read-only";
     EXPECT_TRUE(status & S::kKnownName);
     EXPECT_EQ(Api::StatusTypeCode(status), Api::TypeCode::Float);
+}
+
+// WRITE-only access, end to end. Everywhere else in the suite a property is
+// either read/write or read-only, and VhalMockClient cannot express this at
+// all, so without this case the writable bit is never seen on its own.
+TEST_F(BridgeGrpcTest, PropertyStatusCarriesWriteOnlyAccess)
+{
+    namespace S = Api::PropertyStatus;
+
+    const auto result = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kWriteOnlyName)));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+
+    const auto status = test::ParseInt32(result.data);
+    EXPECT_TRUE(status & S::kExists);
+    EXPECT_TRUE(status & S::kWritable);
+    EXPECT_FALSE(status & S::kReadable) << "the VHAL declared this property write-only";
+}
+
+// kKnownName means "the compiled-in AOSP table has this name", and a vendor
+// property is the only input where that differs from "the backend gave it an
+// id". VhalGrpcClient reports the VHAL's own id, which is non-zero here, so
+// deriving the bit from the id would claim a synthesised "UNKNOWN_<id>" name is
+// a known AOSP one - and the mock, which resolves ids from that very table,
+// would never show it.
+TEST_F(BridgeGrpcTest, PropertyStatusDoesNotClaimAVendorPropertyIsAKnownAospName)
+{
+    namespace S = Api::PropertyStatus;
+    const auto vendorName = VehicleProperty_GetNameById(kVendorId);
+    ASSERT_EQ(VehicleProperty_GetIdByName(vendorName), 0) << "fixture assumption: not an AOSP name";
+
+    const auto result = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(vendorName)));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+
+    const auto status = test::ParseInt32(result.data);
+    EXPECT_TRUE(status & S::kExists) << "the VHAL does configure it";
+    EXPECT_FALSE(status & S::kKnownName) << "but AOSP has never heard of it";
+    EXPECT_EQ(Api::StatusTypeCode(status), Api::TypeCode::Int32) << "the vendor id still encodes its type";
+}
+
+// The exact word the README promises for a real property this vehicle does not
+// implement: known name plus its accessor, and nothing else. Asserted here
+// rather than only on MakeStatus in isolation, because the branch that builds
+// it lives in the adapter and never runs in a unit test.
+TEST_F(BridgeGrpcTest, PropertyStatusForAKnownButUnconfiguredPropertyIsNameAndTypeOnly)
+{
+    namespace S = Api::PropertyStatus;
+
+    const auto result = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kUnconfiguredName)));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+
+    EXPECT_EQ(test::ParseInt32(result.data), Api::MakeStatus(S::kKnownName, Api::TypeCode::Float));
+    EXPECT_EQ(test::ParseInt32(result.data), 0x308) << "the value documented in README.md";
+}
+
+// The status word must keep tracking the VHAL after the configuration table is
+// cached. Ordered, not timed: the first call is what warms the cache, so a
+// second call that still claims the property exists is reporting a vehicle that
+// is no longer there - the same ambiguity as a silent 0, one layer down.
+TEST_F(BridgeGrpcTest, PropertyStatusStopsClaimingAPropertyOnceTheVhalIsGone)
+{
+    namespace S = Api::PropertyStatus;
+
+    const auto before = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kFloatName)));
+    ASSERT_EQ(before.status, Rpc::RpcCallStatus::Success);
+    ASSERT_TRUE(test::ParseInt32(before.data) & S::kExists) << "precondition: the table is cached and says it exists";
+
+    Server().SetTransportStatus(grpc::StatusCode::UNAVAILABLE);
+
+    const auto after = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kFloatName)));
+    ASSERT_EQ(after.status, Rpc::RpcCallStatus::Success);
+    const auto status = test::ParseInt32(after.data);
+    EXPECT_LT(status, 0) << "a cached table must not outlive the VHAL it describes";
+    EXPECT_FALSE(status & S::kExists);
+    EXPECT_TRUE(status & S::kKnownName);
 }
 
 // A VHAL that cannot be reached must not be reported as a VHAL with no

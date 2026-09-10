@@ -342,7 +342,11 @@ Logging:
         const auto status = ParseValue<int32_t>(res.data);
         if (status < 0)
         {
-            print("STAT {} = 0x{:08X} the bridge could not reach the VHAL", name, status);
+            // Cast so the sign bit prints as part of the word. fmt renders a
+            // negative int32 as "-80000000", which is the one value a reader
+            // most needs to recognise on sight.
+            print("STAT {} = 0x{:08X} the bridge could not answer (VHAL unreachable, or a malformed request)", name,
+                  static_cast<uint32_t>(status));
         }
         else if (status == S::kAbsent)
         {
@@ -350,7 +354,7 @@ Logging:
         }
         else
         {
-            print("STAT {} = 0x{:X} {}{}{}{} accessor={}", name, status,
+            print("STAT {} = 0x{:X} {}{}{}{} accessor={}", name, static_cast<uint32_t>(status),
                   (status & S::kExists) ? "exists " : "not-configured ", (status & S::kReadable) ? "readable " : "",
                   (status & S::kWritable) ? "writable " : "", (status & S::kKnownName) ? "aosp-name " : "",
                   TypeCodeName(VhalSimpleApi::StatusTypeCode(status)));

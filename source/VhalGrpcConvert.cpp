@@ -145,17 +145,22 @@ auto ToPropertyInfo(const proto::VehiclePropConfig& config) -> PropertyInfo
     info.id = config.prop();
     info.type = ToCarPropertyType(getPropertyType(config.prop()));
 
+    // The union of the top-level access and every per-area access. AOSP V3+
+    // lets a VHAL state access per area, and either field may be the only one
+    // populated - so unioning unconditionally is the rule, rather than reading
+    // the areas only when the top level is NONE. That special case also blocked
+    // widening: a top-level READ with an area declaring READ_WRITE reported
+    // not-writable, which is the opposite of the intended policy.
+    //
+    // Union, not intersection: this answers "can any part of this property be
+    // read or written", because the SimpleApi has no area parameter to narrow
+    // the question with. See the area caveat in README.md - the accessors all
+    // address area 0, so for a property whose areas exclude 0 this is broader
+    // than what a Get<Type> will actually manage.
     auto access = static_cast<int32_t>(config.access());
-    if (access == proto::VehiclePropertyAccess::NONE)
+    for (const auto& area : config.area_configs())
     {
-        // AOSP V3+ per-area access. The union, not the intersection: if any area
-        // of the vehicle can be read, the property is readable - GetPropertyStatus
-        // answers about the property, and the SimpleApi has no area parameter to
-        // narrow it with.
-        for (const auto& area : config.area_configs())
-        {
-            access |= static_cast<int32_t>(area.access());
-        }
+        access |= static_cast<int32_t>(area.access());
     }
     info.access = static_cast<PropertyAccess>(access & static_cast<int32_t>(PropertyAccess::ReadWrite));
     return info;

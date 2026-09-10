@@ -50,10 +50,21 @@ int VhalGetApiVersion(long& value)
 //
 // This is the only way to tell "the property is 0" from "there is no such
 // property": every Get<Type> answers both with 0.
+//
+// A bridge that does not serve the method never matches this client, so the
+// call returns ServerNotReachable, which arrives here as status <= 0. Check the
+// return code before the bitfield, always.
 int VhalGetPropertyStatus(char name[], long& propertyStatus)
 {
     int status = -1;
     callcontext properties.GetPropertyStatus cc;
+    // Cleared before the call, not left as the caller passed it. Every other
+    // wrapper here leaves its out-parameter untouched on failure, which is
+    // harmless for a value but not for a bitfield: a caller who initialised it
+    // to -1 and then followed the documented "mask the bit you care about"
+    // advice would read 0xFFFFFFFF as exists+readable+writable+known-name with
+    // an undefined type nibble. 0 is the one value that reads as "nothing".
+    propertyStatus = 0;
     cc = properties.GetPropertyStatus.CallAsync(name);
     status = testWaitForAnswer(cc, maxWait);
     if(status > 0) {

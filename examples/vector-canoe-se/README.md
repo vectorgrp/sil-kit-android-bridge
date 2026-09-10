@@ -42,9 +42,13 @@ A mismatch never fails loudly: SIL Kit simply does not pair the client with the
 server, and every call returns `ServerNotReachable`. That is what
 `GetApiVersion` is for, and why `CheckEvBatteryProperties` calls it first.
 
-`GetPropertyStatus` is the fourth thing the two halves must agree on, because
-CAPL cannot include the C++ header and so restates the bit numbers by hand in
-`VhalUtils.cin`:
+`GetPropertyStatus` adds a fourth thing the two halves must agree on, and it
+behaves unlike the three above. A mismatch in a name, label or wire format
+stops the call from matching at all, which is loud once you know to expect
+`ServerNotReachable`. These bit numbers are not a matching key: get them wrong
+and the call succeeds and is misread. CAPL cannot include the C++ header, so
+`VhalUtils.cin` restates them by hand and nothing mechanically checks the two
+against each other - `Test_VhalSimpleApi.cpp` only pins the C++ side.
 
 | Bits | Meaning |
 |------|---------|
@@ -120,12 +124,21 @@ plausible zero. `CheckAllPropertyTypes` asserts against exactly these:
 The seed lives in [`source/VhalMockClient.hpp`](../../source/VhalMockClient.hpp);
 add a property there and it is immediately reachable from CANoe.
 
+### Running against --mock
+
 Against `--mock`, `GetPropertyStatus` reports every seeded property above as
 `exists | readable | writable | known name` plus its type, because the mock
 hands back everything it stores and accepts a write to any of it. A real VHAL
 reports whatever access its configuration table declares, so `EV_BATTERY_LEVEL`
 is typically read-only there. A known AOSP name that is not seeded answers
 `0x08` plus its type, and a name outside the AOSP table answers `0`.
+
+Two consequences for the shipped example specifically. `VhalMockClient` has no
+way to report a read-only or write-only property, so step `7.1` asserts only
+readability and prints writability - per-area and write-only access can be
+validated against hardware and nowhere else. And `VhalMockClient::GetPropertyInfo`
+cannot fail, so the negative "could not answer" branch of step `7.1` is
+unreachable under `--mock`; it exists for the device case.
 
 **Use the method family that matches the AOSP type.** The mock declares each
 value with the type AOSP declares for that property id, exactly as a device would,
@@ -175,8 +188,15 @@ a type mismatch. Two consequences worth knowing:
   Reading is confirmed end to end - `DE AD BE EF` renders in the CANoe trace
   window, which also settles that `sil-adapter-builder` and SIL Kit SerDes agree
   on the wire format (a `uint32` length prefix then raw bytes, identical to
-  `string`). The write direction is step `6.2` of `CheckAllPropertyTypes` and has
+  `string`). The write direction is step `5.2` of `CheckAllPropertyTypes` and has
   not been run yet.
+- Step `7` of `CheckAllPropertyTypes` (`GetPropertyStatus`) has not been run
+  yet. It is also the step most likely to fail first against a device: the
+  bridge preloads the property configuration table at startup so the call does
+  not stream it inside `testWaitForAnswer`'s 100 ms, but that preload is best
+  effort, and a VHAL with a slow or very large table would push the first call
+  past the budget. If step `7.1` reports no answer, raise `maxWait` before
+  suspecting the contract.
 - The CAPL helpers copy the result into a caller-supplied buffer, so size it for
   the properties you read. `VhalGetBytes` also returns the length, taken from
   `elcount()` on the result, which is how Vector's own samples bound a `bytes`

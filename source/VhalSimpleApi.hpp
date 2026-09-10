@@ -142,9 +142,11 @@ inline constexpr int32_t kTypeMask = 0xF; //!< mask after shifting, not before
 
 // Bits 12-30 are reserved and always zero.
 
-//! The bridge could not ask: the VHAL was unreachable or its configuration
-//! stream broke. This is the sign bit, so a caller tests `status < 0`. The lower
-//! bits still carry whatever was answerable offline (kKnownName and the type).
+//! The bridge could not produce an answer: the VHAL was unreachable, its
+//! configuration stream broke, or the request itself could not be decoded.
+//! This is the sign bit, so a caller tests `status < 0`. The lower bits still
+//! carry whatever was answerable offline (kKnownName and the type), and are
+//! never a statement about the VHAL - kExists is always clear here.
 //!
 //! Deliberately not kAbsent. Reporting an outage as "no such property" is the
 //! same ambiguity this method exists to remove, one layer up.
@@ -251,7 +253,12 @@ inline auto MakeStatus(int32_t flags, TypeCode type) -> int32_t
 
 inline auto StatusTypeCode(int32_t status) -> TypeCode
 {
-    return static_cast<TypeCode>((status >> PropertyStatus::kTypeShift) & PropertyStatus::kTypeMask);
+    // Shifted as unsigned: kQueryFailed sets the sign bit, and right-shifting a
+    // negative signed value is implementation-defined before C++20. The mask
+    // would clean up after an arithmetic shift anyway, but relying on that puts
+    // a language footnote between the caller and the answer.
+    const auto bits = static_cast<uint32_t>(status) >> static_cast<uint32_t>(PropertyStatus::kTypeShift);
+    return static_cast<TypeCode>(bits & static_cast<uint32_t>(PropertyStatus::kTypeMask));
 }
 
 } // namespace VhalSimpleApi
