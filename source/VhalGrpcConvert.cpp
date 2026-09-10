@@ -130,6 +130,37 @@ auto ToPropValue(int32_t propId, const CarProperty::Value& value) -> proto::Vehi
     return out;
 }
 
+// PropertyAccess restates these numbers so that IVhalClient.hpp stays
+// protobuf-free. This is the one translation unit that sees both, so it is the
+// only place the correspondence can be checked - and a silent divergence would
+// report readable properties as inaccessible.
+static_assert(static_cast<int32_t>(PropertyAccess::None) == proto::VehiclePropertyAccess::NONE, "");
+static_assert(static_cast<int32_t>(PropertyAccess::Read) == proto::VehiclePropertyAccess::READ, "");
+static_assert(static_cast<int32_t>(PropertyAccess::Write) == proto::VehiclePropertyAccess::WRITE, "");
+static_assert(static_cast<int32_t>(PropertyAccess::ReadWrite) == proto::VehiclePropertyAccess::READ_WRITE, "");
+
+auto ToPropertyInfo(const proto::VehiclePropConfig& config) -> PropertyInfo
+{
+    PropertyInfo info;
+    info.id = config.prop();
+    info.type = ToCarPropertyType(getPropertyType(config.prop()));
+
+    auto access = static_cast<int32_t>(config.access());
+    if (access == proto::VehiclePropertyAccess::NONE)
+    {
+        // AOSP V3+ per-area access. The union, not the intersection: if any area
+        // of the vehicle can be read, the property is readable - GetPropertyStatus
+        // answers about the property, and the SimpleApi has no area parameter to
+        // narrow it with.
+        for (const auto& area : config.area_configs())
+        {
+            access |= static_cast<int32_t>(area.access());
+        }
+    }
+    info.access = static_cast<PropertyAccess>(access & static_cast<int32_t>(PropertyAccess::ReadWrite));
+    return info;
+}
+
 auto FirstSetError(const proto::SetValueResults& results) -> std::optional<std::string>
 {
     for (const auto& result : results.results())

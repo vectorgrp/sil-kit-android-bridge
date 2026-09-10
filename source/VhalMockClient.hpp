@@ -4,8 +4,10 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "IVhalClient.hpp"
@@ -16,7 +18,7 @@
 // integration tests. It exists so the bridge and a CANoe configuration can be
 // exercised end to end with no device attached.
 //
-// Two properties of a real VHAL that this deliberately reproduces:
+// Three properties of a real VHAL that this deliberately reproduces:
 //
 //   * Every seeded value has the type AOSP declares for that property id, so
 //     GetFloat("EV_BATTERY_LEVEL") works and GetInt32 on it reports a mismatch -
@@ -26,6 +28,12 @@
 //   * A write of the wrong type is rejected rather than quietly changing the
 //     stored type, mirroring the "expects FLOAT, not INT32" error
 //     VhalGrpcClient::SetValues throws.
+//   * GetPropertyInfo reports every stored property as READ_WRITE. That is not
+//     the access AOSP declares, it is what this mock does: it hands back
+//     everything it stores and accepts a write to any of it. Reporting INFO_VIN
+//     as read-only while still accepting the write would make GetPropertyStatus
+//     lie about the very backend it is describing. Against a device the access
+//     is whatever the VHAL's configuration table says.
 //
 // Names outside the AOSP table (vendor or ad-hoc ids) are stored as given, since
 // there is nothing to validate against.
@@ -42,6 +50,7 @@ public:
     auto RemovePropertyChangedHandler(int handlerId) -> void override;
     auto GetAllProperties() -> std::vector<std::string> override;
     bool CheckHealth() override;
+    auto GetPropertyInfo(std::string_view name) -> std::optional<PropertyInfo> override;
 
     void SimulatePropertyChange(const CarProperty& prop);
 
@@ -210,6 +219,26 @@ inline auto VhalMockClient::GetAllProperties() -> std::vector<std::string>
         result.push_back(name);
     }
     return result;
+}
+
+inline auto VhalMockClient::GetPropertyInfo(std::string_view name) -> std::optional<PropertyInfo>
+{
+    const auto key = std::string(name);
+    if (properties_.find(key) == properties_.end())
+    {
+        return std::nullopt;
+    }
+
+    // ReadWrite for everything, because that is what this mock actually does -
+    // see the third bullet at the top of this file. id and type come from the
+    // AOSP table, so they match what a real VHAL reports; a name outside the
+    // table gets id 0 and type None, which is the honest answer for a value
+    // stored under an ad-hoc name.
+    PropertyInfo info;
+    info.id = android::hardware::automotive::vehicle::VehicleProperty_GetIdByName(key);
+    info.access = PropertyAccess::ReadWrite;
+    info.type = ToCarPropertyType(VhalMockDetail::DeclaredType(key));
+    return info;
 }
 
 inline void VhalMockClient::SimulatePropertyChange(const CarProperty& prop)

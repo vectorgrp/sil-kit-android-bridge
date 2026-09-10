@@ -79,6 +79,8 @@ protected:
         setString_ = canoe_->AddRpcClient("SetString", test::MakeClientSpec(Api::Method::kSetString));
         getBytes_ = canoe_->AddRpcClient("GetBytes", test::MakeClientSpec(Api::Method::kGetBytes));
         setBytes_ = canoe_->AddRpcClient("SetBytes", test::MakeClientSpec(Api::Method::kSetBytes));
+        propertyStatus_ =
+            canoe_->AddRpcClient("GetPropertyStatus", test::MakeClientSpec(Api::Method::kGetPropertyStatus));
 
         canoe_->Start();
         ASSERT_TRUE(canoe_->WaitUntilConnected("VhalBridge"));
@@ -118,6 +120,7 @@ protected:
     Rpc::IRpcClient* setString_{};
     Rpc::IRpcClient* getBytes_{};
     Rpc::IRpcClient* setBytes_{};
+    Rpc::IRpcClient* propertyStatus_{};
 };
 
 TEST_F(BridgeGrpcTest, ReadsEachTypeThroughTheWholeChain)
@@ -233,6 +236,53 @@ TEST_F(BridgeGrpcTest, VhalTransportFailureIsReportedAsTheDefaultAndTheBridgeSur
     const auto recovered = canoe_->Call(getInt32_, ToSpan(test::GetReq(kInt32Name)));
     ASSERT_EQ(recovered.status, Rpc::RpcCallStatus::Success);
     EXPECT_EQ(test::ParseInt32(recovered.data), 2026);
+}
+
+// ---- GetPropertyStatus, end to end ----
+//
+// The only place the VHAL's declared access travels the full chain: fake VHAL
+// config table -> gRPC stream -> VhalGrpcClient cache -> adapter -> SIL Kit ->
+// consumer. Every layer below has its own coverage; what is only testable here
+// is that the access survives all of them.
+TEST_F(BridgeGrpcTest, PropertyStatusCarriesTheVhalDeclaredAccessToTheConsumer)
+{
+    namespace S = Api::PropertyStatus;
+    Server().SeedConfig(VehicleProperty_GetIdByName(kFloatName), vhal::VehiclePropertyAccess::READ);
+
+    const auto result = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kFloatName)));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+
+    const auto status = test::ParseInt32(result.data);
+    EXPECT_TRUE(status & S::kExists);
+    EXPECT_TRUE(status & S::kReadable);
+    EXPECT_FALSE(status & S::kWritable) << "the VHAL declared this property read-only";
+    EXPECT_TRUE(status & S::kKnownName);
+    EXPECT_EQ(Api::StatusTypeCode(status), Api::TypeCode::Float);
+}
+
+// A VHAL that cannot be reached must not be reported as a VHAL with no
+// properties. The sign bit says "could not ask"; kAbsent would say "no such
+// property", and a CANoe test would then blame its own property name.
+TEST_F(BridgeGrpcTest, PropertyStatusReportsAnUnreachableVhalAsAFailureNotAnAbsence)
+{
+    namespace S = Api::PropertyStatus;
+    Server().SetTransportStatus(grpc::StatusCode::UNAVAILABLE);
+
+    const auto result = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kFloatName)));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success) << "the bridge answers rather than dropping the call";
+
+    const auto status = test::ParseInt32(result.data);
+    EXPECT_LT(status, 0) << "the sign bit is how a caller tells an outage from an absent property";
+    EXPECT_NE(status, S::kAbsent);
+    EXPECT_FALSE(status & S::kExists);
+    EXPECT_TRUE(status & S::kKnownName) << "the AOSP table is answerable with no VHAL at all";
+
+    // And the bridge recovers: nothing about the failure was remembered.
+    Server().SetTransportStatus(grpc::StatusCode::OK);
+    const auto recovered = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kFloatName)));
+    ASSERT_EQ(recovered.status, Rpc::RpcCallStatus::Success);
+    EXPECT_GE(test::ParseInt32(recovered.data), 0);
+    EXPECT_TRUE(test::ParseInt32(recovered.data) & S::kExists);
 }
 
 } // namespace

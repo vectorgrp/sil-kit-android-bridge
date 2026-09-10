@@ -111,6 +111,16 @@ private: // methods
 
     void RegisterVersionAccessor(const char* method);
 
+    // The third registration shape. RegisterAccessors<T> is pair-shaped and
+    // RegisterVersionAccessor takes no argument; this one takes a name and
+    // answers an int32, dispatching into the client.
+    void RegisterPropertyStatusAccessor(const char* method);
+
+    //! Assemble the GetPropertyStatus word. The one place the two halves of the
+    //! answer meet: what the VHAL configures, and what the compiled-in AOSP
+    //! table knows without asking it.
+    auto PropertyStatusOf(const std::string& propertyName) -> int32_t;
+
 private:
     SilKit::Services::Rpc::RpcSpec MakeRpcSpec(const std::string& method) const;
 
@@ -130,6 +140,32 @@ private:
     std::string namespace_{VhalSimpleApi::kNamespace};
     std::string instance_{VhalSimpleApi::kInstance};
 };
+
+//! Translate the backend's type model into the wire contract's type code. The
+//! two enums are deliberately separate - IVhalClient describes the VHAL and
+//! VhalSimpleApi describes what CANoe speaks - so the adapter, which is the
+//! only layer that sees both, is where they are joined. An explicit switch
+//! rather than a cast: if either enum gains an entry, this stops compiling
+//! instead of silently shifting a wrong number onto the wire.
+inline auto ToTypeCode(CarPropertyType type) -> VhalSimpleApi::TypeCode
+{
+    switch (type)
+    {
+    case CarPropertyType::Int32:
+        return VhalSimpleApi::TypeCode::Int32;
+    case CarPropertyType::Int64:
+        return VhalSimpleApi::TypeCode::Int64;
+    case CarPropertyType::Float:
+        return VhalSimpleApi::TypeCode::Float;
+    case CarPropertyType::String:
+        return VhalSimpleApi::TypeCode::String;
+    case CarPropertyType::Bytes:
+        return VhalSimpleApi::TypeCode::Bytes;
+    case CarPropertyType::None:
+        break;
+    }
+    return VhalSimpleApi::TypeCode::None;
+}
 
 // ===== Implementation =====
 
@@ -212,6 +248,7 @@ inline void VhalSilKitAdapter::SetupRpcServer()
     RegisterAccessors<std::string>(Method::kGetString, Method::kSetString);
     RegisterAccessors<std::vector<uint8_t>>(Method::kGetBytes, Method::kSetBytes);
     RegisterVersionAccessor(Method::kGetApiVersion);
+    RegisterPropertyStatusAccessor(Method::kGetPropertyStatus);
 
     LogInfo("Serving the VhalSimple API v{} as {}::{} on virtual network '{}'", VhalSimpleApi::kApiVersion, namespace_,
             instance_, virtualNetwork_);
@@ -271,6 +308,76 @@ inline void VhalSilKitAdapter::RegisterVersionAccessor(const char* method)
         LogDebug("GetApiVersion() -> {}", VhalSimpleApi::kApiVersion);
         srv->SubmitResult(ev.callHandle, VhalSimpleApi::SerializeResponse(VhalSimpleApi::kApiVersion));
     });
+}
+
+inline void VhalSilKitAdapter::RegisterPropertyStatusAccessor(const char* method)
+{
+    namespace Rpc = SilKit::Services::Rpc;
+
+    participant_->CreateRpcServer(namespace_ + "::" + instance_ + "." + method, MakeRpcSpec(method),
+                                  [this, method](Rpc::IRpcServer* srv, const Rpc::RpcCallEvent& ev) {
+        // Unlike the Get<Type> handlers, this one does not swallow a failure
+        // into a default value - that ambiguity is what the method exists to
+        // remove. kAbsent is only for a request with no readable name in it:
+        // without a name there is nothing to report a status about.
+        auto status = VhalSimpleApi::PropertyStatus::kAbsent;
+        try
+        {
+            const auto name = VhalSimpleApi::DeserializeGetRequest(ev.argumentData);
+            status = PropertyStatusOf(name);
+            LogDebug("{}('{}') -> 0x{:08X}", method, name, status);
+        }
+        catch (const std::exception& e)
+        {
+            LogError("{} handler: {}", method, e.what());
+        }
+        srv->SubmitResult(ev.callHandle, VhalSimpleApi::SerializeResponse(status));
+    });
+}
+
+inline auto VhalSilKitAdapter::PropertyStatusOf(const std::string& propertyName) -> int32_t
+{
+    namespace S = VhalSimpleApi::PropertyStatus;
+
+    auto flags = S::kAbsent;
+    auto type = VhalSimpleApi::TypeCode::None;
+
+    try
+    {
+        if (auto info = client_->GetPropertyInfo(propertyName))
+        {
+            flags |= S::kExists;
+            if (info->IsReadable())
+                flags |= S::kReadable;
+            if (info->IsWritable())
+                flags |= S::kWritable;
+            // id is 0 for a name outside the AOSP table, which is how a value
+            // stored under an ad-hoc name reports as existing but unknown.
+            if (info->id != 0)
+                flags |= S::kKnownName;
+            type = ToTypeCode(info->type);
+            return VhalSimpleApi::MakeStatus(flags, type);
+        }
+    }
+    catch (const std::exception& e)
+    {
+        // A failed lookup is not an absence. kAbsent would say the property does
+        // not exist; the sign bit says the bridge could not ask. What follows is
+        // answered offline, so the caller still learns whether the name is real.
+        LogError("VhalSilKitAdapter::PropertyStatusOf('{}'): {}", propertyName, e.what());
+        flags |= S::kQueryFailed;
+    }
+
+    // Either the backend does not have this property, or it could not be asked.
+    // Both cases can still say whether AOSP knows the name and which accessor it
+    // would need, with no VHAL round trip.
+    const auto id = android::hardware::automotive::vehicle::VehicleProperty_GetIdByName(propertyName);
+    if (id != 0)
+    {
+        flags |= S::kKnownName;
+        type = ToTypeCode(ToCarPropertyType(android::hardware::automotive::vehicle::getPropertyType(id)));
+    }
+    return VhalSimpleApi::MakeStatus(flags, type);
 }
 
 template<typename T>

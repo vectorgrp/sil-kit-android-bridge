@@ -32,11 +32,14 @@ test benches.
 >   scope decision, not a gap - see [Scope](#scope) for what is out and why.
 > - **Errors look like data on the wire.** An unknown property, a read the VHAL
 >   refused, and a type mismatch all answer `0` with `RpcCallStatus::Success`,
->   because the VCDL methods carry no status out-parameter. From the response
->   alone a caller still cannot tell "battery at 0%" from "no such property". What
->   the wire cannot say, the bridge log now does: all three cases are logged, in
->   both the read and the write direction, and a non-OK VHAL `StatusCode` is no
->   longer converted into a plausible-looking number.
+>   because the VCDL methods carry no status out-parameter. From a `Get<Type>`
+>   response alone a caller still cannot tell "battery at 0%" from "no such
+>   property" - but it no longer has to guess: `GetPropertyStatus` answers
+>   whether the property exists, whether it is readable or writable, and which
+>   accessor it needs. What the wire cannot say, the bridge log also says: all
+>   three cases are logged, in both the read and the write direction, and a
+>   non-OK VHAL `StatusCode` is no longer converted into a plausible-looking
+>   number.
 > - **No automated test drives a real device.** CI covers the gRPC path against a
 >   fake VHAL, including the error, health and result-handling paths and which
 >   protobuf field each write lands in, and exercises the whole chain (SIL Kit ->
@@ -60,8 +63,27 @@ each call to the VHAL.
 | `bytes` | `bytes GetBytes(string name)` | `void SetBytes(string name, bytes value)` |
 
 plus `int32 GetApiVersion()`, which reports the contract version (currently `1`)
-so a CANoe configuration can check it speaks the same dialect. AOSP `BOOLEAN`
-properties travel over the `int32` methods as 0/1.
+so a CANoe configuration can check it speaks the same dialect, and
+`int32 GetPropertyStatus(string name)`, which answers what the bridge knows
+about a property without reading its value. AOSP `BOOLEAN` properties travel
+over the `int32` methods as 0/1.
+
+`GetPropertyStatus` returns a bitfield:
+
+| Bits | Meaning |
+|------|---------|
+| `0x01` | the VHAL configures this property |
+| `0x02` | readable |
+| `0x04` | writable |
+| `0x08` | a known AOSP property name, answered without asking the VHAL |
+| bits 8-11 | which accessor to use: `0` none, `1` int32, `2` int64, `3` float, `4` string, `5` bytes |
+| negative | the bridge could not reach the VHAL; the lower bits still hold what was answerable offline |
+
+`0` means the name is unknown to the bridge entirely. A real AOSP name that this
+vehicle does not implement answers `0x08` plus its type - non-zero with `0x01`
+clear - which is what separates a missing feature from a typo. Test
+`status & 0x01`, never `status != 0`. Bits 4-7 and 12-30 are reserved, so mask
+what you need and a later addition stays additive.
 
 Properties are addressed by their AOSP name (`EV_BATTERY_LEVEL`,
 `RANGE_REMAINING`, ...); the name-to-id mapping is generated from AOSP's

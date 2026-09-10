@@ -85,6 +85,7 @@ protected:
         getBytesClient_ = add(Api::Method::kGetBytes);
         setBytesClient_ = add(Api::Method::kSetBytes);
         versionClient_ = add(Api::Method::kGetApiVersion);
+        statusClient_ = add(Api::Method::kGetPropertyStatus);
         // Same discovery round as the well-named clients, so that
         // WrongFunctionNameDoesNotMatch compares like with like. The function name
         // here is the fully qualified path, which is the old broken behavior - it
@@ -129,6 +130,7 @@ protected:
     Rpc::IRpcClient* getBytesClient_{nullptr};
     Rpc::IRpcClient* setBytesClient_{nullptr};
     Rpc::IRpcClient* versionClient_{nullptr};
+    Rpc::IRpcClient* statusClient_{nullptr};
     Rpc::IRpcClient* badClient_{nullptr};
 };
 
@@ -168,6 +170,77 @@ TEST_F(AdapterRpcTest, SetThenGetFloatRoundTrip)
     const auto getResult = canoe_->Call(getFloatClient_, ToSpan(GetReq("RANGE_REMAINING")));
     ASSERT_EQ(getResult.status, Rpc::RpcCallStatus::Success);
     EXPECT_FLOAT_EQ(ParseFloat(getResult.data), 21.5f);
+}
+
+// ---- GetPropertyStatus ----
+//
+// The method that makes UnknownPropertyReturnsZero below survivable: every
+// Get<Type> answers a failure with a default value, so a caller needs some way
+// to tell "battery at 0%" from "no such property" without reading the value.
+
+TEST_F(AdapterRpcTest, GetPropertyStatusDescribesASeededProperty)
+{
+    namespace S = Api::PropertyStatus;
+
+    const auto result = canoe_->Call(statusClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+
+    const auto status = ParseInt32(result.data);
+    EXPECT_EQ(status, Api::MakeStatus(S::kExists | S::kReadable | S::kWritable | S::kKnownName, Api::TypeCode::Float));
+    EXPECT_GE(status, 0) << "the sign bit means the bridge could not ask, which it could";
+}
+
+// The type nibble is why a caller does not have to guess which Get<Type> to
+// call. Guessing wrong returns a plausible-looking zero.
+TEST_F(AdapterRpcTest, GetPropertyStatusReportsWhichAccessorToUse)
+{
+    auto typeOf = [&](const char* name) {
+        const auto result = canoe_->Call(statusClient_, ToSpan(GetReq(name)));
+        EXPECT_EQ(result.status, Rpc::RpcCallStatus::Success);
+        return Api::StatusTypeCode(ParseInt32(result.data));
+    };
+    EXPECT_EQ(typeOf("INFO_MODEL_YEAR"), Api::TypeCode::Int32);
+    EXPECT_EQ(typeOf("ANDROID_EPOCH_TIME"), Api::TypeCode::Int64);
+    EXPECT_EQ(typeOf("EV_BATTERY_LEVEL"), Api::TypeCode::Float);
+    EXPECT_EQ(typeOf("INFO_VIN"), Api::TypeCode::String);
+    EXPECT_EQ(typeOf("STORAGE_ENCRYPTION_BINDING_SEED"), Api::TypeCode::Bytes);
+}
+
+// A name AOSP knows that this backend does not have. Non-zero, but kExists is
+// clear - that asymmetry is the whole diagnostic value, since it separates a
+// property this vehicle lacks from a name that was simply mistyped.
+TEST_F(AdapterRpcTest, GetPropertyStatusDistinguishesAMissingPropertyFromATypo)
+{
+    namespace S = Api::PropertyStatus;
+
+    const auto missing = canoe_->Call(statusClient_, ToSpan(GetReq("PERF_STEERING_ANGLE")));
+    ASSERT_EQ(missing.status, Rpc::RpcCallStatus::Success);
+    const auto missingStatus = ParseInt32(missing.data);
+    EXPECT_TRUE(missingStatus & S::kKnownName);
+    EXPECT_FALSE(missingStatus & S::kExists);
+    EXPECT_NE(missingStatus, S::kAbsent);
+
+    const auto typo = canoe_->Call(statusClient_, ToSpan(GetReq("NOT_A_REAL_PROPERTY")));
+    ASSERT_EQ(typo.status, Rpc::RpcCallStatus::Success);
+    EXPECT_EQ(ParseInt32(typo.data), S::kAbsent);
+}
+
+// A value written under a non-AOSP name exists but has no id, so kExists is set
+// and kKnownName is not. The mirror image of the case above, and together they
+// prove the two bits are independent rather than one implying the other.
+TEST_F(AdapterRpcTest, GetPropertyStatusReportsANonAospNameAsExistingButUnknown)
+{
+    namespace S = Api::PropertyStatus;
+
+    ASSERT_EQ(canoe_->Call(setFloatClient_, ToSpan(SetFloatReq("CABIN_TEMP", 21.5f))).status,
+              Rpc::RpcCallStatus::Success);
+
+    const auto result = canoe_->Call(statusClient_, ToSpan(GetReq("CABIN_TEMP")));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+    const auto status = ParseInt32(result.data);
+    EXPECT_TRUE(status & S::kExists);
+    EXPECT_FALSE(status & S::kKnownName);
+    EXPECT_EQ(Api::StatusTypeCode(status), Api::TypeCode::None) << "no AOSP entry, so no accessor to recommend";
 }
 
 TEST_F(AdapterRpcTest, UnknownPropertyReturnsZero)

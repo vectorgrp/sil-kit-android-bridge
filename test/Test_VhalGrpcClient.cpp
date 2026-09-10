@@ -271,6 +271,124 @@ TEST(VhalConvertReadStatus, NonOkResultYieldsNulloptEvenWithAValue)
 
 // ------------------------------------------------ SetValueResults status gate
 
+// ------------------------------------------------------------ ToPropertyInfo
+//
+// The property configuration table is what GetPropertyStatus answers from, so
+// this mapping decides whether CANoe is told a property is readable, writable
+// or absent. Proto in, project struct out - no channel, no server.
+
+namespace {
+auto ConfigOf(const char* name, proto::VehiclePropertyAccess access) -> proto::VehiclePropConfig
+{
+    proto::VehiclePropConfig c;
+    c.set_prop(IdOf(name));
+    c.set_access(access);
+    return c;
+}
+} // namespace
+
+TEST(VhalConvertConfig, AccessMapsToReadableAndWritable)
+{
+    auto info = [](proto::VehiclePropertyAccess access) {
+        return VhalConvert::ToPropertyInfo(ConfigOf(kFloatProp, access));
+    };
+
+    EXPECT_FALSE(info(proto::VehiclePropertyAccess::NONE).IsReadable());
+    EXPECT_FALSE(info(proto::VehiclePropertyAccess::NONE).IsWritable());
+
+    EXPECT_TRUE(info(proto::VehiclePropertyAccess::READ).IsReadable());
+    EXPECT_FALSE(info(proto::VehiclePropertyAccess::READ).IsWritable());
+
+    EXPECT_FALSE(info(proto::VehiclePropertyAccess::WRITE).IsReadable());
+    EXPECT_TRUE(info(proto::VehiclePropertyAccess::WRITE).IsWritable());
+
+    EXPECT_TRUE(info(proto::VehiclePropertyAccess::READ_WRITE).IsReadable());
+    EXPECT_TRUE(info(proto::VehiclePropertyAccess::READ_WRITE).IsWritable());
+}
+
+// The project enum restates the AOSP numbers rather than including the proto
+// into IVhalClient.hpp. VhalGrpcConvert.cpp static_asserts the correspondence,
+// so this only has to prove the value actually survives the translation.
+TEST(VhalConvertConfig, AccessValueIsCarriedThroughUntouched)
+{
+    const auto info = VhalConvert::ToPropertyInfo(ConfigOf(kInt32Prop, proto::VehiclePropertyAccess::READ_WRITE));
+    EXPECT_EQ(info.access, PropertyAccess::ReadWrite);
+    EXPECT_EQ(info.id, IdOf(kInt32Prop));
+}
+
+TEST(VhalConvertConfig, TypeComesFromTheAospTable)
+{
+    auto typeOf = [](const char* name) {
+        return VhalConvert::ToPropertyInfo(ConfigOf(name, proto::VehiclePropertyAccess::READ)).type;
+    };
+    EXPECT_EQ(typeOf(kInt32Prop), CarPropertyType::Int32);
+    EXPECT_EQ(typeOf(kBooleanProp), CarPropertyType::Int32) << "AOSP BOOLEAN travels as int32";
+    EXPECT_EQ(typeOf(kInt64Prop), CarPropertyType::Int64);
+    EXPECT_EQ(typeOf(kFloatProp), CarPropertyType::Float);
+    EXPECT_EQ(typeOf(kStringProp), CarPropertyType::String);
+    EXPECT_EQ(typeOf(kBytesProp), CarPropertyType::Bytes);
+}
+
+// A property whose type VhalSimple cannot carry is still a real property: it
+// exists and has an access, it just has no Get<Type> to call. Reporting None
+// rather than guessing a type is what stops a caller reading a vector property
+// through GetInt32 and getting a plausible-looking first element.
+TEST(VhalConvertConfig, UnrepresentableTypeYieldsNoTypeButKeepsTheRest)
+{
+    proto::VehiclePropConfig c;
+    c.set_prop(IdOf("WHEEL_TICK")); // AOSP INT64_VEC
+    c.set_access(proto::VehiclePropertyAccess::READ);
+
+    const auto info = VhalConvert::ToPropertyInfo(c);
+    EXPECT_EQ(info.type, CarPropertyType::None);
+    EXPECT_EQ(info.id, IdOf("WHEEL_TICK"));
+    EXPECT_TRUE(info.IsReadable());
+}
+
+// An unset config is proto3 default everything. It must not decode as readable:
+// a default-constructed message reaching this function means the VHAL told us
+// nothing, and inventing access from nothing is how a caller ends up calling a
+// Get that will always fail.
+TEST(VhalConvertConfig, DefaultConstructedConfigIsInaccessible)
+{
+    const auto info = VhalConvert::ToPropertyInfo(proto::VehiclePropConfig{});
+    EXPECT_EQ(info.id, 0);
+    EXPECT_EQ(info.access, PropertyAccess::None);
+    EXPECT_EQ(info.type, CarPropertyType::None);
+    EXPECT_FALSE(info.IsReadable());
+    EXPECT_FALSE(info.IsWritable());
+}
+
+// AOSP V3+ lets a VHAL declare access per area and leave the top-level field at
+// NONE. Reading only the top-level field would then report a perfectly usable
+// property as inaccessible, so fall back to the union of the area accesses.
+TEST(VhalConvertConfig, PerAreaAccessIsUsedWhenTheTopLevelAccessIsNone)
+{
+    proto::VehiclePropConfig c;
+    c.set_prop(IdOf(kFloatProp));
+    c.set_access(proto::VehiclePropertyAccess::NONE);
+    c.add_area_configs()->set_access(proto::VehiclePropertyAccess::READ);
+    c.add_area_configs()->set_access(proto::VehiclePropertyAccess::WRITE);
+
+    const auto info = VhalConvert::ToPropertyInfo(c);
+    EXPECT_TRUE(info.IsReadable()) << "one area is readable, so the property is";
+    EXPECT_TRUE(info.IsWritable());
+}
+
+// The fallback is a fallback: a top-level access that says something wins, so a
+// restrictive area cannot narrow a property the VHAL declared globally.
+TEST(VhalConvertConfig, TopLevelAccessWinsOverAreaConfigs)
+{
+    proto::VehiclePropConfig c;
+    c.set_prop(IdOf(kFloatProp));
+    c.set_access(proto::VehiclePropertyAccess::READ_WRITE);
+    c.add_area_configs()->set_access(proto::VehiclePropertyAccess::NONE);
+
+    const auto info = VhalConvert::ToPropertyInfo(c);
+    EXPECT_TRUE(info.IsReadable());
+    EXPECT_TRUE(info.IsWritable());
+}
+
 TEST(VhalConvertWriteStatus, AllOkYieldsNoError)
 {
     proto::SetValueResults results;

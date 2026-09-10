@@ -9,6 +9,24 @@
 variables
 {
     int maxWait = 100; //milliseconds
+
+    // GetPropertyStatus bits. Keep in sync with VhalSimpleApi::PropertyStatus in
+    // source/VhalSimpleApi.hpp - CAPL cannot include that header, so these are
+    // restated by hand and Test_VhalSimpleApi pins the numbers on the other side.
+    long kVhalPropExists    = 0x01;
+    long kVhalPropReadable  = 0x02;
+    long kVhalPropWritable  = 0x04;
+    long kVhalPropKnownName = 0x08;
+
+    // Which accessor the property needs, in bits 8-11.
+    long kVhalPropTypeShift = 8;
+    long kVhalPropTypeMask  = 0x0F;
+    long kVhalTypeNone      = 0;
+    long kVhalTypeInt32     = 1;
+    long kVhalTypeInt64     = 2;
+    long kVhalTypeFloat     = 3;
+    long kVhalTypeString    = 4;
+    long kVhalTypeBytes     = 5;
 }
 
 // Contract version served by the bridge. Compare against the value this VCDL was
@@ -23,6 +41,32 @@ int VhalGetApiVersion(long& value)
         value = cc.Result;
     }
     return status;
+}
+
+// Capability query for one property. The result is a bitfield, so mask the bit
+// you care about rather than comparing the whole value - see VhalSimple.vcdl for
+// the layout. A result of 0 means the name is unknown to the bridge entirely; a
+// negative result means the bridge could not reach the VHAL.
+//
+// This is the only way to tell "the property is 0" from "there is no such
+// property": every Get<Type> answers both with 0.
+int VhalGetPropertyStatus(char name[], long& propertyStatus)
+{
+    int status = -1;
+    callcontext properties.GetPropertyStatus cc;
+    cc = properties.GetPropertyStatus.CallAsync(name);
+    status = testWaitForAnswer(cc, maxWait);
+    if(status > 0) {
+        propertyStatus = cc.Result;
+    }
+    return status;
+}
+
+// Which Get<Type>/Set<Type> pair addresses this property: one of the kVhalType*
+// values above. Call it on a status word that VhalGetPropertyStatus produced.
+long VhalPropertyType(long propertyStatus)
+{
+    return (propertyStatus >> kVhalPropTypeShift) & kVhalPropTypeMask;
 }
 
 // ---- int32 (also carries AOSP BOOLEAN properties, as 0/1) ----

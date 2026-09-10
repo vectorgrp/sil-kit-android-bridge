@@ -91,6 +91,7 @@ export testcase CheckAllPropertyTypes()
     char text[128] = "", textBefore[128] = "";
     byte blob[64], newSeed[4] = {0xCA, 0xFE, 0xBA, 0xBE};
     long blobLen = -1, blobLenBefore = -1;
+    long propStatus = -1;
 
     status = VhalGetApiVersion(apiVersion);
     if (status > 0 && apiVersion == 1) {
@@ -197,7 +198,32 @@ export testcase CheckAllPropertyTypes()
         testStepFail("6.1", "unknown property: status=%d, value=%d (expected status>0 and 0)", status, i32);
     }
 
-    testStepPass("7.0", "All VhalSimple types exercised");
+    // ---- introspection: telling a missing property from a mistyped one ----
+    // Backend-agnostic on purpose. Against --mock EV_BATTERY_LEVEL is
+    // read/write, against a real VHAL it is read-only, so the access bits are
+    // reported rather than asserted; what must hold either way is that the
+    // property is there and that the bridge recommends the float accessor.
+    status = VhalGetPropertyStatus("EV_BATTERY_LEVEL", propStatus);
+    if (status > 0 && (propStatus & kVhalPropExists) && VhalPropertyType(propStatus) == kVhalTypeFloat) {
+        testStepPass("7.1", "GetPropertyStatus(EV_BATTERY_LEVEL) = 0x%X (readable=%d, writable=%d)",
+                     propStatus, (propStatus & kVhalPropReadable) != 0, (propStatus & kVhalPropWritable) != 0);
+    } else if (status > 0 && propStatus < 0) {
+        testStepFail("7.1", "the bridge could not reach the VHAL (0x%X)", propStatus);
+    } else {
+        testStepFail("7.1", "GetPropertyStatus did not answer usably: status=%d, value=0x%X", status, propStatus);
+    }
+
+    // The pair that makes step 6.1 above diagnosable: both reads answer 0, but
+    // the status word tells them apart. A real AOSP name this vehicle does not
+    // implement keeps its kKnownName bit; a typo has nothing set at all.
+    status = VhalGetPropertyStatus("NOT_A_REAL_PROPERTY", propStatus);
+    if (status > 0 && propStatus == 0) {
+        testStepPass("7.2", "a mistyped name reports 0, so the 0 from step 6.1 is explained");
+    } else {
+        testStepFail("7.2", "unknown name: status=%d, value=0x%X (expected 0)", status, propStatus);
+    }
+
+    testStepPass("8.0", "All VhalSimple types exercised");
 }
 
 // Asserts the exact values --mock seeds (see source/VhalMockClient.hpp). Only

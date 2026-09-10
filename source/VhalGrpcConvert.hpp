@@ -26,6 +26,7 @@
 #endif
 
 #include "android/hardware/automotive/vehicle/StatusCode.pb.h"
+#include "android/hardware/automotive/vehicle/VehiclePropConfig.pb.h"
 #include "android/hardware/automotive/vehicle/VehiclePropValue.pb.h"
 #include "android/hardware/automotive/vehicle/VehiclePropValueRequest.pb.h"
 
@@ -61,6 +62,16 @@ auto ToCarProperty(const android::hardware::automotive::vehicle::proto::GetValue
 //! and a BYTES value written into int32_values was exactly how that drifted before.
 auto ToPropValue(int32_t propId, const CarProperty::Value& value)
     -> android::hardware::automotive::vehicle::proto::VehiclePropValue;
+
+//! Translate one property configuration entry. This is what GetPropertyStatus
+//! answers from, so it decides whether a caller is told a property is readable,
+//! writable or absent.
+//!
+//! Access rule: the top-level access, or - when that is NONE and per-area
+//! configs exist - the union of the area accesses. AOSP V3+ lets a VHAL declare
+//! access per area only, and reading the top-level field alone would then report
+//! a perfectly usable property as inaccessible.
+auto ToPropertyInfo(const android::hardware::automotive::vehicle::proto::VehiclePropConfig& config) -> PropertyInfo;
 
 //! nullopt when every write succeeded; otherwise a message naming the first
 //! offending StatusCode, ready to put in a VhalClientError.

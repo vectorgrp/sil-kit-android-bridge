@@ -16,9 +16,9 @@ you do not have CANoe.
 
 | File | Role |
 |------|------|
-| `VhalSimple.vcdl` | The interface contract. Declares namespace `VhalSimple`, the `IVhalSimple` interface with the ten property methods plus `GetApiVersion`, and the object `properties`. |
-| `VhalUtils.cin` | CAPL helpers wrapping each method in an async call plus `testWaitForAnswer`: `VhalGetInt32` / `VhalSetInt32` and the same pair for `Int64`, `Float`, `String` and `Bytes`, plus `VhalGetApiVersion`. |
-| `VhalTest.can` | Three CAPL test cases. `CheckEvBatteryProperties` drives `EV_BATTERY_LEVEL` through a ramp. `CheckAllPropertyTypes` checks the API version and then, for each of the five types, that the read answers (step `x.1`) and that a write round-trips (step `x.2`); it asserts nothing about which values a property holds, so it passes against `--mock` and against a real device. `CheckMockSeedValues` asserts the exact `--mock` seed values and is therefore not in the default test tree. |
+| `VhalSimple.vcdl` | The interface contract. Declares namespace `VhalSimple`, the `IVhalSimple` interface with the ten property methods plus `GetApiVersion` and `GetPropertyStatus`, and the object `properties`. |
+| `VhalUtils.cin` | CAPL helpers wrapping each method in an async call plus `testWaitForAnswer`: `VhalGetInt32` / `VhalSetInt32` and the same pair for `Int64`, `Float`, `String` and `Bytes`, plus `VhalGetApiVersion`, `VhalGetPropertyStatus` and the `VhalPropertyType` helper that unpacks its type nibble. |
+| `VhalTest.can` | Three CAPL test cases. `CheckEvBatteryProperties` drives `EV_BATTERY_LEVEL` through a ramp. `CheckAllPropertyTypes` checks the API version and then, for each of the five types, that the read answers (step `x.1`) and that a write round-trips (step `x.2`); step 7 then asks `GetPropertyStatus` which property exists and which accessor it needs; it asserts nothing about which values a property holds, so it passes against `--mock` and against a real device. `CheckMockSeedValues` asserts the exact `--mock` seed values and is therefore not in the default test tree. |
 | `venvironment.yaml` | Virtual environment: binds `VhalSimple.vcdl` and sets the SIL Kit participant name to `canoe-vhal-test`. |
 | `VhalTest.vtestunit.yaml` | Test unit: `VhalTest.can` plus the test tree. |
 | `VhalTest.vtesttree.yaml` | Test tree: the single CAPL test case to execute. |
@@ -41,6 +41,24 @@ nothing matches:
 A mismatch never fails loudly: SIL Kit simply does not pair the client with the
 server, and every call returns `ServerNotReachable`. That is what
 `GetApiVersion` is for, and why `CheckEvBatteryProperties` calls it first.
+
+`GetPropertyStatus` is the fourth thing the two halves must agree on, because
+CAPL cannot include the C++ header and so restates the bit numbers by hand in
+`VhalUtils.cin`:
+
+| Bits | Meaning |
+|------|---------|
+| `0x01` | the VHAL configures this property |
+| `0x02` | readable |
+| `0x04` | writable |
+| `0x08` | a known AOSP property name, answered without asking the VHAL |
+| bits 8-11 | which accessor to use: `0` none, `1` int32, `2` int64, `3` float, `4` string, `5` bytes |
+| negative | the bridge could not reach the VHAL; the lower bits still hold what was answerable offline |
+
+`0` means the name is unknown to the bridge entirely, so a known name this
+vehicle does not implement is `0x08` plus its type - non-zero with `0x01` clear.
+Test `(status & kVhalPropExists)`, never `status != 0`. Bits 4-7 and 12-30 are
+reserved. `Test_VhalSimpleApi.cpp` pins these numbers on the C++ side.
 
 The adapter defaults to exactly the values `sil-adapter-builder` generates from
 this VCDL, so a CANoe participant built against it matches with no extra
@@ -101,6 +119,13 @@ plausible zero. `CheckAllPropertyTypes` asserts against exactly these:
 
 The seed lives in [`source/VhalMockClient.hpp`](../../source/VhalMockClient.hpp);
 add a property there and it is immediately reachable from CANoe.
+
+Against `--mock`, `GetPropertyStatus` reports every seeded property above as
+`exists | readable | writable | known name` plus its type, because the mock
+hands back everything it stores and accepts a write to any of it. A real VHAL
+reports whatever access its configuration table declares, so `EV_BATTERY_LEVEL`
+is typically read-only there. A known AOSP name that is not seeded answers
+`0x08` plus its type, and a name outside the AOSP table answers `0`.
 
 **Use the method family that matches the AOSP type.** The mock declares each
 value with the type AOSP declares for that property id, exactly as a device would,

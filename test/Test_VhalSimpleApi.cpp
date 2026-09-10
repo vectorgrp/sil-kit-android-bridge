@@ -8,6 +8,7 @@
 // regression guard for the wire-format compatibility that previously broke CANoe
 // interop.
 #include <cstdint>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -59,6 +60,110 @@ TEST(VhalSimpleApiContract, MethodNamesAreBareAndTypeSuffixed)
     EXPECT_STREQ(Api::Method::kSetString, "SetString");
     EXPECT_STREQ(Api::Method::kGetBytes, "GetBytes");
     EXPECT_STREQ(Api::Method::kSetBytes, "SetBytes");
+    EXPECT_STREQ(Api::Method::kGetPropertyStatus, "GetPropertyStatus");
+}
+
+// ---- The GetPropertyStatus word ----
+//
+// CANoe cannot include this header, so CAPL restates these numbers by hand in
+// VhalUtils.cin. Pin the literal values: a renumbering that compiles here and is
+// not mirrored there is silently wrong on the wire, which is the one class of
+// bug the whole two-sided contract exists to prevent.
+
+TEST(VhalSimpleApiContract, PropertyStatusBitsArePinnedForCanoe)
+{
+    namespace S = Api::PropertyStatus;
+    EXPECT_EQ(S::kAbsent, 0);
+    EXPECT_EQ(S::kExists, 0x01);
+    EXPECT_EQ(S::kReadable, 0x02);
+    EXPECT_EQ(S::kWritable, 0x04);
+    EXPECT_EQ(S::kKnownName, 0x08);
+    EXPECT_EQ(S::kTypeShift, 8);
+    EXPECT_EQ(S::kTypeMask, 0x0F);
+}
+
+TEST(VhalSimpleApiContract, PropertyStatusTypeCodesArePinnedForCanoe)
+{
+    using T = Api::TypeCode;
+    EXPECT_EQ(static_cast<int32_t>(T::None), 0);
+    EXPECT_EQ(static_cast<int32_t>(T::Int32), 1);
+    EXPECT_EQ(static_cast<int32_t>(T::Int64), 2);
+    EXPECT_EQ(static_cast<int32_t>(T::Float), 3);
+    EXPECT_EQ(static_cast<int32_t>(T::String), 4);
+    EXPECT_EQ(static_cast<int32_t>(T::Bytes), 5);
+}
+
+// A duplicated shift is invisible in review and lethal on the wire: two flags
+// sharing a bit make one of them unreadable.
+TEST(VhalSimpleApiContract, PropertyStatusFlagsAreDisjoint)
+{
+    namespace S = Api::PropertyStatus;
+    const int32_t flags[] = {S::kExists, S::kReadable, S::kWritable, S::kKnownName};
+    for (size_t i = 0; i < std::size(flags); ++i)
+    {
+        for (size_t j = i + 1; j < std::size(flags); ++j)
+        {
+            EXPECT_EQ(flags[i] & flags[j], 0) << "flags " << i << " and " << j << " share a bit";
+        }
+        // The flags live below the type nibble, so packing a type cannot disturb
+        // them and masking a flag cannot pick up type bits.
+        EXPECT_EQ(flags[i] & (S::kTypeMask << S::kTypeShift), 0) << "flag " << i << " overlaps the type nibble";
+    }
+}
+
+// kQueryFailed is the sign bit, so "the bridge could not ask" is a plain
+// `status < 0` test in CAPL. It is deliberately not zero: reporting an outage as
+// kAbsent would tell a caller the property does not exist, which is exactly the
+// "errors look like data" ambiguity this method was added to remove.
+TEST(VhalSimpleApiContract, QueryFailedIsNegativeAndKeepsWhatWasKnownOffline)
+{
+    namespace S = Api::PropertyStatus;
+    const auto status = S::kQueryFailed | Api::MakeStatus(S::kKnownName, Api::TypeCode::Float);
+
+    EXPECT_LT(status, 0);
+    EXPECT_NE(status, S::kAbsent);
+    EXPECT_TRUE(status & S::kKnownName);
+    EXPECT_FALSE(status & S::kExists);
+    EXPECT_EQ(Api::StatusTypeCode(status), Api::TypeCode::Float);
+}
+
+TEST(VhalSimpleApiContract, MakeStatusPacksTheTypeIntoTheNibble)
+{
+    namespace S = Api::PropertyStatus;
+
+    // A seeded, readable, writable float with a name AOSP knows.
+    const auto full = Api::MakeStatus(S::kExists | S::kReadable | S::kWritable | S::kKnownName, Api::TypeCode::Float);
+    EXPECT_EQ(full, 0x30F);
+
+    // A name AOSP knows that this vehicle does not implement. Non-zero, but
+    // kExists is clear - that asymmetry is what separates a typo from a missing
+    // feature, so callers must mask kExists rather than compare against zero.
+    const auto known = Api::MakeStatus(S::kKnownName, Api::TypeCode::Float);
+    EXPECT_EQ(known, 0x308);
+    EXPECT_FALSE(known & S::kExists);
+    EXPECT_NE(known, S::kAbsent);
+
+    EXPECT_EQ(Api::MakeStatus(S::kAbsent, Api::TypeCode::None), S::kAbsent);
+}
+
+TEST(VhalSimpleApiContract, StatusTypeCodeRoundTripsEveryType)
+{
+    namespace S = Api::PropertyStatus;
+    for (auto type : {Api::TypeCode::None, Api::TypeCode::Int32, Api::TypeCode::Int64, Api::TypeCode::Float,
+                      Api::TypeCode::String, Api::TypeCode::Bytes})
+    {
+        EXPECT_EQ(Api::StatusTypeCode(Api::MakeStatus(S::kExists | S::kReadable, type)), type);
+    }
+}
+
+// Reserved bits are what keeps a later addition additive: a consumer that masks
+// only the bits it knows keeps working when one of these is claimed.
+TEST(VhalSimpleApiContract, ReservedBitsAreZero)
+{
+    namespace S = Api::PropertyStatus;
+    const auto status = Api::MakeStatus(S::kExists | S::kReadable | S::kWritable | S::kKnownName, Api::TypeCode::Bytes);
+    EXPECT_EQ(status & 0xF0, 0) << "bits 4-7 are reserved";
+    EXPECT_EQ(status & 0x7FFFF000, 0) << "bits 12-30 are reserved";
 }
 
 // ---- Request deserialization (adapter receives what CANoe sends) ----
@@ -199,6 +304,25 @@ TEST(VhalSimpleApiSerDes, Int32ResponseIsFourBytesLittleEndian)
     EXPECT_EQ(bytes[1], 0x00);
     EXPECT_EQ(bytes[2], 0x00);
     EXPECT_EQ(bytes[3], 0x00);
+}
+
+// The status word is an ordinary int32 on the wire, so GetPropertyStatus needs
+// no new encoding. Pin it anyway with a packed value rather than a small one:
+// 0x30F exercises the type nibble, which a single-byte value like 42 would not.
+TEST(VhalSimpleApiSerDes, PropertyStatusResponseIsAPlainInt32)
+{
+    namespace S = Api::PropertyStatus;
+    const auto status = Api::MakeStatus(S::kExists | S::kReadable | S::kWritable | S::kKnownName, Api::TypeCode::Float);
+    const auto bytes = Api::SerializeResponse(status);
+
+    ASSERT_EQ(bytes.size(), 4u);
+    EXPECT_EQ(bytes[0], 0x0F);
+    EXPECT_EQ(bytes[1], 0x03);
+    EXPECT_EQ(bytes[2], 0x00);
+    EXPECT_EQ(bytes[3], 0x00);
+
+    SerDes::Deserializer d{bytes}; // bare read, as the CANoe client does
+    EXPECT_EQ(d.Deserialize<int32_t>(32), status);
 }
 
 TEST(VhalSimpleApiSerDes, Int64ResponseIsEightBytesLittleEndian)
