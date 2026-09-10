@@ -264,116 +264,99 @@ TEST_F(BridgeGrpcTest, VhalTransportFailureIsReportedAsTheDefaultAndTheBridgeSur
 // is that the access survives all of them.
 TEST_F(BridgeGrpcTest, PropertyStatusCarriesTheVhalDeclaredAccessToTheConsumer)
 {
-    namespace S = Api::PropertyStatus;
-
     const auto result = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kFloatName)));
     ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
 
-    const auto status = test::ParseInt32(result.data);
-    EXPECT_TRUE(status & S::kExists);
-    EXPECT_TRUE(status & S::kReadable);
-    EXPECT_FALSE(status & S::kWritable) << "the VHAL declared this property read-only";
-    EXPECT_TRUE(status & S::kKnownName);
-    EXPECT_EQ(Api::StatusTypeCode(status), Api::TypeCode::Float);
+    const auto view = test::ParsePropertyStatus(result.data);
+    EXPECT_TRUE(view.exists);
+    EXPECT_TRUE(view.readable);
+    EXPECT_FALSE(view.writable) << "the VHAL declared this property read-only";
+    EXPECT_TRUE(view.knownName);
+    EXPECT_EQ(view.valueType, static_cast<int8_t>(Api::TypeCode::Float));
 }
 
-// WRITE-only access, end to end. Everywhere else in the suite a property is
-// either read/write or read-only, and VhalMockClient cannot express this at
-// all, so without this case the writable bit is never seen on its own.
+// Everywhere else in the suite a property is either read/write or read-only,
+// and VhalMockClient cannot express this at all, so without this case the
+// writable field is never seen on its own.
 TEST_F(BridgeGrpcTest, PropertyStatusCarriesWriteOnlyAccess)
 {
-    namespace S = Api::PropertyStatus;
-
     const auto result = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kWriteOnlyName)));
     ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
 
-    const auto status = test::ParseInt32(result.data);
-    EXPECT_TRUE(status & S::kExists);
-    EXPECT_TRUE(status & S::kWritable);
-    EXPECT_FALSE(status & S::kReadable) << "the VHAL declared this property write-only";
+    const auto view = test::ParsePropertyStatus(result.data);
+    EXPECT_TRUE(view.exists);
+    EXPECT_TRUE(view.writable);
+    EXPECT_FALSE(view.readable) << "the VHAL declared this property write-only";
 }
 
-// kKnownName means "the compiled-in AOSP table has this name", and a vendor
+// knownName means "the compiled-in AOSP table has this name", and a vendor
 // property is the only input where that differs from "the backend gave it an
-// id". VhalGrpcClient reports the VHAL's own id, which is non-zero here, so
-// deriving the bit from the id would claim a synthesised "UNKNOWN_<id>" name is
-// a known AOSP one - and the mock, which resolves ids from that very table,
-// would never show it.
+// id". VhalGrpcClient reports the VHAL's own id, which is non-zero here.
 TEST_F(BridgeGrpcTest, PropertyStatusDoesNotClaimAVendorPropertyIsAKnownAospName)
 {
-    namespace S = Api::PropertyStatus;
     const auto vendorName = VehicleProperty_GetNameById(kVendorId);
     ASSERT_EQ(VehicleProperty_GetIdByName(vendorName), 0) << "fixture assumption: not an AOSP name";
 
     const auto result = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(vendorName)));
     ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
 
-    const auto status = test::ParseInt32(result.data);
-    EXPECT_TRUE(status & S::kExists) << "the VHAL does configure it";
-    EXPECT_FALSE(status & S::kKnownName) << "but AOSP has never heard of it";
-    EXPECT_EQ(Api::StatusTypeCode(status), Api::TypeCode::Int32) << "the vendor id still encodes its type";
+    const auto view = test::ParsePropertyStatus(result.data);
+    EXPECT_TRUE(view.exists) << "the VHAL does configure it";
+    EXPECT_FALSE(view.knownName) << "but AOSP has never heard of it";
+    EXPECT_EQ(view.valueType, static_cast<int8_t>(Api::TypeCode::Int32)) << "the vendor id still encodes its type";
 }
 
-// The exact word the README promises for a real property this vehicle does not
-// implement: known name plus its accessor, and nothing else. Asserted here
-// rather than only on MakeStatus in isolation, because the branch that builds
-// it lives in the adapter and never runs in a unit test.
+// A real property this vehicle does not implement: known name plus its
+// accessor, and nothing else. The branch that builds it lives in the adapter
+// and never runs in a unit test.
 TEST_F(BridgeGrpcTest, PropertyStatusForAKnownButUnconfiguredPropertyIsNameAndTypeOnly)
 {
-    namespace S = Api::PropertyStatus;
-
     const auto result = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kUnconfiguredName)));
     ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
-
-    EXPECT_EQ(test::ParseInt32(result.data), Api::MakeStatus(S::kKnownName, Api::TypeCode::Float));
-    EXPECT_EQ(test::ParseInt32(result.data), 0x308) << "the value documented in README.md";
+    EXPECT_EQ(result.data, (std::vector<uint8_t>{0, 0, 0, 1, 3, 0}));
 }
 
-// The status word must keep tracking the VHAL after the configuration table is
+// The status must keep tracking the VHAL after the configuration table is
 // cached. Ordered, not timed: the first call is what warms the cache, so a
 // second call that still claims the property exists is reporting a vehicle that
-// is no longer there - the same ambiguity as a silent 0, one layer down.
+// is no longer there.
 TEST_F(BridgeGrpcTest, PropertyStatusStopsClaimingAPropertyOnceTheVhalIsGone)
 {
-    namespace S = Api::PropertyStatus;
-
     const auto before = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kFloatName)));
     ASSERT_EQ(before.status, Rpc::RpcCallStatus::Success);
-    ASSERT_TRUE(test::ParseInt32(before.data) & S::kExists) << "precondition: the table is cached and says it exists";
+    ASSERT_TRUE(test::ParsePropertyStatus(before.data).exists) << "precondition: the table is cached";
 
     Server().SetTransportStatus(grpc::StatusCode::UNAVAILABLE);
 
     const auto after = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kFloatName)));
     ASSERT_EQ(after.status, Rpc::RpcCallStatus::Success);
-    const auto status = test::ParseInt32(after.data);
-    EXPECT_LT(status, 0) << "a cached table must not outlive the VHAL it describes";
-    EXPECT_FALSE(status & S::kExists);
-    EXPECT_TRUE(status & S::kKnownName);
+    const auto view = test::ParsePropertyStatus(after.data);
+    EXPECT_TRUE(view.queryFailed) << "a cached table must not outlive the VHAL it describes";
+    EXPECT_FALSE(view.exists);
+    EXPECT_TRUE(view.knownName);
 }
 
 // A VHAL that cannot be reached must not be reported as a VHAL with no
-// properties. The sign bit says "could not ask"; kAbsent would say "no such
-// property", and a CANoe test would then blame its own property name.
+// properties: an all-false answer means "no such property", and a CANoe test
+// would then blame its own property name.
 TEST_F(BridgeGrpcTest, PropertyStatusReportsAnUnreachableVhalAsAFailureNotAnAbsence)
 {
-    namespace S = Api::PropertyStatus;
     Server().SetTransportStatus(grpc::StatusCode::UNAVAILABLE);
 
     const auto result = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kFloatName)));
     ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success) << "the bridge answers rather than dropping the call";
 
-    const auto status = test::ParseInt32(result.data);
-    EXPECT_LT(status, 0) << "the sign bit is how a caller tells an outage from an absent property";
-    EXPECT_NE(status, S::kAbsent);
-    EXPECT_FALSE(status & S::kExists);
-    EXPECT_TRUE(status & S::kKnownName) << "the AOSP table is answerable with no VHAL at all";
+    const auto view = test::ParsePropertyStatus(result.data);
+    EXPECT_TRUE(view.queryFailed);
+    EXPECT_FALSE(view.exists);
+    EXPECT_TRUE(view.knownName) << "the AOSP table is answerable with no VHAL at all";
 
-    // And the bridge recovers: nothing about the failure was remembered.
     Server().SetTransportStatus(grpc::StatusCode::OK);
     const auto recovered = canoe_->Call(propertyStatus_, ToSpan(test::GetReq(kFloatName)));
     ASSERT_EQ(recovered.status, Rpc::RpcCallStatus::Success);
-    EXPECT_GE(test::ParseInt32(recovered.data), 0);
-    EXPECT_TRUE(test::ParseInt32(recovered.data) & S::kExists);
+    const auto recoveredView = test::ParsePropertyStatus(recovered.data);
+    EXPECT_FALSE(recoveredView.queryFailed);
+    EXPECT_TRUE(recoveredView.exists);
 }
 
 } // namespace

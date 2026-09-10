@@ -324,13 +324,11 @@ Logging:
         return ParseValue<int32_t>(res.data);
     }
 
-    //! Ask the bridge what it knows about a property, and print it decoded. This
-    //! is the only way to tell a property that holds 0 from one that does not
-    //! exist, so it is worth reaching for before blaming a name.
+    //! Ask the bridge what it knows about a property, and print it decoded.
+    //! This is the only way to tell a property that holds 0 from one that does
+    //! not exist, so it is worth reaching for before blaming a name.
     void PropertyStatus(const std::string& name)
     {
-        namespace S = VhalSimpleApi::PropertyStatus;
-
         const auto reqBytes = GetReq(name);
         const auto res = Call(propertyStatus_, ToSpan(reqBytes));
         if (res.status != Rpc::RpcCallStatus::Success)
@@ -339,26 +337,28 @@ Logging:
             return;
         }
 
-        const auto status = ParseValue<int32_t>(res.data);
-        if (status < 0)
+        SerDes::Deserializer d{res.data};
+        const auto exists = d.Deserialize<bool>();
+        const auto readable = d.Deserialize<bool>();
+        const auto writable = d.Deserialize<bool>();
+        const auto knownName = d.Deserialize<bool>();
+        const auto valueType = d.Deserialize<int8_t>(8);
+        const auto queryFailed = d.Deserialize<bool>();
+
+        if (queryFailed)
         {
-            // Cast so the sign bit prints as part of the word. fmt renders a
-            // negative int32 as "-80000000", which is the one value a reader
-            // most needs to recognise on sight.
-            print("STAT {} = 0x{:08X} the bridge could not answer (VHAL unreachable, or a malformed request)", name,
-                  static_cast<uint32_t>(status));
+            print("STAT {} could not be answered (VHAL unreachable, or a malformed request){}", name,
+                  knownName ? ", but AOSP knows the name" : "");
+            return;
         }
-        else if (status == S::kAbsent)
+        if (!exists && !knownName)
         {
-            print("STAT {} = 0 unknown to the bridge: not configured, and not an AOSP property name", name);
+            print("STAT {} unknown to the bridge: not configured, and not an AOSP property name", name);
+            return;
         }
-        else
-        {
-            print("STAT {} = 0x{:X} {}{}{}{} accessor={}", name, static_cast<uint32_t>(status),
-                  (status & S::kExists) ? "exists " : "not-configured ", (status & S::kReadable) ? "readable " : "",
-                  (status & S::kWritable) ? "writable " : "", (status & S::kKnownName) ? "aosp-name " : "",
-                  TypeCodeName(VhalSimpleApi::StatusTypeCode(status)));
-        }
+        print("STAT {} {}{}{}{} accessor={}", name, exists ? "exists " : "not-configured ", readable ? "readable " : "",
+              writable ? "writable " : "", knownName ? "aosp-name " : "",
+              TypeCodeName(static_cast<VhalSimpleApi::TypeCode>(valueType)));
     }
 
     // Read a single property and print its value.

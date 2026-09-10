@@ -177,70 +177,77 @@ TEST_F(AdapterRpcTest, SetThenGetFloatRoundTrip)
 // The method that makes UnknownPropertyReturnsZero below survivable: every
 // Get<Type> answers a failure with a default value, so a caller needs some way
 // to tell "battery at 0%" from "no such property" without reading the value.
+//
+// The first two cases are the vectors verified against CANoe DE.
 
-TEST_F(AdapterRpcTest, GetPropertyStatusDescribesASeededProperty)
+TEST_F(AdapterRpcTest, PropertyStatusForASeededProperty)
 {
-    namespace S = Api::PropertyStatus;
-
-    const auto result = canoe_->Call(statusClient_, ToSpan(GetReq("EV_BATTERY_LEVEL")));
+    const auto result = canoe_->Call(statusClient_, ToSpan(GetReq("RANGE_REMAINING")));
     ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+    EXPECT_EQ(result.data, (std::vector<uint8_t>{1, 1, 1, 1, 3, 0}));
 
-    const auto status = ParseInt32(result.data);
-    EXPECT_EQ(status, Api::MakeStatus(S::kExists | S::kReadable | S::kWritable | S::kKnownName, Api::TypeCode::Float));
-    EXPECT_GE(status, 0) << "the sign bit means the bridge could not ask, which it could";
+    const auto view = test::ParsePropertyStatus(result.data);
+    EXPECT_TRUE(view.exists);
+    EXPECT_TRUE(view.readable);
+    EXPECT_TRUE(view.writable);
+    EXPECT_TRUE(view.knownName);
+    EXPECT_EQ(view.valueType, static_cast<int8_t>(Api::TypeCode::Float));
+    EXPECT_FALSE(view.queryFailed);
 }
 
-// The type nibble is why a caller does not have to guess which Get<Type> to
+TEST_F(AdapterRpcTest, PropertyStatusForAnUnknownProperty)
+{
+    const auto result = canoe_->Call(statusClient_, ToSpan(GetReq("SOME_NONEXISTENT")));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+    EXPECT_EQ(result.data, (std::vector<uint8_t>{0, 0, 0, 0, 0, 0}));
+}
+
+// The type field is why a caller does not have to guess which Get<Type> to
 // call. Guessing wrong returns a plausible-looking zero.
-TEST_F(AdapterRpcTest, GetPropertyStatusReportsWhichAccessorToUse)
+TEST_F(AdapterRpcTest, PropertyStatusReportsWhichAccessorToUse)
 {
     auto typeOf = [&](const char* name) {
         const auto result = canoe_->Call(statusClient_, ToSpan(GetReq(name)));
         EXPECT_EQ(result.status, Rpc::RpcCallStatus::Success);
-        return Api::StatusTypeCode(ParseInt32(result.data));
+        return test::ParsePropertyStatus(result.data).valueType;
     };
-    EXPECT_EQ(typeOf("INFO_MODEL_YEAR"), Api::TypeCode::Int32);
-    EXPECT_EQ(typeOf("ANDROID_EPOCH_TIME"), Api::TypeCode::Int64);
-    EXPECT_EQ(typeOf("EV_BATTERY_LEVEL"), Api::TypeCode::Float);
-    EXPECT_EQ(typeOf("INFO_VIN"), Api::TypeCode::String);
-    EXPECT_EQ(typeOf("STORAGE_ENCRYPTION_BINDING_SEED"), Api::TypeCode::Bytes);
+    EXPECT_EQ(typeOf("INFO_MODEL_YEAR"), static_cast<int8_t>(Api::TypeCode::Int32));
+    EXPECT_EQ(typeOf("ANDROID_EPOCH_TIME"), static_cast<int8_t>(Api::TypeCode::Int64));
+    EXPECT_EQ(typeOf("EV_BATTERY_LEVEL"), static_cast<int8_t>(Api::TypeCode::Float));
+    EXPECT_EQ(typeOf("INFO_VIN"), static_cast<int8_t>(Api::TypeCode::String));
+    EXPECT_EQ(typeOf("STORAGE_ENCRYPTION_BINDING_SEED"), static_cast<int8_t>(Api::TypeCode::Bytes));
 }
 
-// A name AOSP knows that this backend does not have. Non-zero, but kExists is
-// clear - that asymmetry is the whole diagnostic value, since it separates a
-// property this vehicle lacks from a name that was simply mistyped.
-TEST_F(AdapterRpcTest, GetPropertyStatusDistinguishesAMissingPropertyFromATypo)
+// A name AOSP knows that this backend does not have. knownName without exists -
+// that asymmetry is the whole diagnostic value, since it separates a property
+// this vehicle lacks from a name that was simply mistyped.
+TEST_F(AdapterRpcTest, PropertyStatusDistinguishesAMissingPropertyFromATypo)
 {
-    namespace S = Api::PropertyStatus;
-
     const auto missing = canoe_->Call(statusClient_, ToSpan(GetReq("PERF_STEERING_ANGLE")));
     ASSERT_EQ(missing.status, Rpc::RpcCallStatus::Success);
-    const auto missingStatus = ParseInt32(missing.data);
-    EXPECT_TRUE(missingStatus & S::kKnownName);
-    EXPECT_FALSE(missingStatus & S::kExists);
-    EXPECT_NE(missingStatus, S::kAbsent);
+    const auto missingView = test::ParsePropertyStatus(missing.data);
+    EXPECT_TRUE(missingView.knownName);
+    EXPECT_FALSE(missingView.exists);
 
     const auto typo = canoe_->Call(statusClient_, ToSpan(GetReq("NOT_A_REAL_PROPERTY")));
     ASSERT_EQ(typo.status, Rpc::RpcCallStatus::Success);
-    EXPECT_EQ(ParseInt32(typo.data), S::kAbsent);
+    EXPECT_EQ(typo.data, (std::vector<uint8_t>{0, 0, 0, 0, 0, 0}));
 }
 
-// A value written under a non-AOSP name exists but has no id, so kExists is set
-// and kKnownName is not. The mirror image of the case above, and together they
-// prove the two bits are independent rather than one implying the other.
-TEST_F(AdapterRpcTest, GetPropertyStatusReportsANonAospNameAsExistingButUnknown)
+// A value written under a non-AOSP name exists but has no id, so exists is set
+// and knownName is not. The mirror image of the case above, and together they
+// prove the two fields are independent rather than one implying the other.
+TEST_F(AdapterRpcTest, PropertyStatusReportsANonAospNameAsExistingButUnknown)
 {
-    namespace S = Api::PropertyStatus;
-
     ASSERT_EQ(canoe_->Call(setFloatClient_, ToSpan(SetFloatReq("CABIN_TEMP", 21.5f))).status,
               Rpc::RpcCallStatus::Success);
 
     const auto result = canoe_->Call(statusClient_, ToSpan(GetReq("CABIN_TEMP")));
     ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
-    const auto status = ParseInt32(result.data);
-    EXPECT_TRUE(status & S::kExists);
-    EXPECT_FALSE(status & S::kKnownName);
-    EXPECT_EQ(Api::StatusTypeCode(status), Api::TypeCode::None) << "no AOSP entry, so no accessor to recommend";
+    const auto view = test::ParsePropertyStatus(result.data);
+    EXPECT_TRUE(view.exists);
+    EXPECT_FALSE(view.knownName);
+    EXPECT_EQ(view.valueType, static_cast<int8_t>(Api::TypeCode::None)) << "no AOSP entry, so no accessor to recommend";
 }
 
 TEST_F(AdapterRpcTest, UnknownPropertyReturnsZero)

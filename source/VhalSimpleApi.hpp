@@ -51,9 +51,9 @@
 //     request : (empty)
 //     response: int32(32)
 //
-//   GetPropertyStatus(string name) -> int32
+//   GetPropertyStatus(string name) -> VhalPropertyStatus
 //     request : string(name)
-//     response: int32(32), a bitfield - see PropertyStatus below
+//     response: six bytes, one per struct field in declaration order
 //
 // where <Type> is int32(32), int64(64), float, a uint32-length-prefixed string,
 // or a uint32-length-prefixed byte array.
@@ -90,24 +90,19 @@ inline constexpr auto kSetBytes = "SetBytes";
 inline constexpr auto kGetPropertyStatus = "GetPropertyStatus";
 } // namespace Method
 
-// ---- The GetPropertyStatus word ----
+// ---- GetPropertyStatus ----
 //
 // Every Get<Type> answers a failure with a default value, so a caller cannot
 // tell "battery at 0%" from "no such property". GetPropertyStatus is the way to
 // ask instead of guessing, and it is one call rather than a status
 // out-parameter on all ten accessors - which would have changed every existing
 // signature and broken every CANoe configuration built against v1.
-//
-// The answer is a bitfield, not an enum. CANoe cannot include this header, so
-// VhalUtils.cin restates these numbers by hand; Test_VhalSimpleApi pins them.
-// A consumer must MASK the bits it needs and never compare the whole value, so
-// that claiming a reserved bit later stays additive.
 
 //! Which Get<Type>/Set<Type> pair addresses a property. Answered from the
 //! compiled-in AOSP table, so it is available even for a property the vehicle
 //! does not implement. This closes the silent-zero trap: GetInt32 on a float
 //! property returns 0 and looks like data.
-enum class TypeCode : int32_t
+enum class TypeCode : int8_t
 {
     //! Not representable in VhalSimple: INT32_VEC, FLOAT_VEC, MIXED and friends.
     //! See the Scope note above - these are a data-model gap, not a missing method.
@@ -119,40 +114,36 @@ enum class TypeCode : int32_t
     Bytes = 5,
 };
 
-namespace PropertyStatus {
-
-//! Nothing is known about this name: neither the VHAL's configuration table nor
-//! the AOSP table has it. Note that the converse does not hold - see kKnownName.
-inline constexpr int32_t kAbsent = 0;
-
-inline constexpr int32_t kExists = 1 << 0;   //!< the VHAL configures this property
-inline constexpr int32_t kReadable = 1 << 1; //!< its access is READ or READ_WRITE
-inline constexpr int32_t kWritable = 1 << 2; //!< its access is WRITE or READ_WRITE
-
-//! The name is in the AOSP VehicleProperty table. Independent of kExists: a name
-//! this vehicle does not implement answers kKnownName with kExists clear, which
-//! is what separates a typo from a missing feature. Callers test
-//! `status & kExists`, never `status != kAbsent`.
-inline constexpr int32_t kKnownName = 1 << 3;
-
-// Bits 4-7 are reserved and always zero.
-
-inline constexpr int32_t kTypeShift = 8;  //!< bits 8-11 hold a TypeCode
-inline constexpr int32_t kTypeMask = 0xF; //!< mask after shifting, not before
-
-// Bits 12-30 are reserved and always zero.
-
-//! The bridge could not produce an answer: the VHAL was unreachable, its
-//! configuration stream broke, or the request itself could not be decoded.
-//! This is the sign bit, so a caller tests `status < 0`. The lower bits still
-//! carry whatever was answerable offline (kKnownName and the type), and are
-//! never a statement about the VHAL - kExists is always clear here.
+//! Mirrors `struct VhalPropertyStatus` in VhalSimple.vcdl.
 //!
-//! Deliberately not kAbsent. Reporting an outage as "no such property" is the
-//! same ambiguity this method exists to remove, one layer up.
-inline constexpr int32_t kQueryFailed = INT32_MIN;
+//! Wire layout is one byte per field in declaration order, six in total: SIL
+//! Kit SerDes encodes bool as an aligned 0/1 byte and int8 as one byte, and
+//! BeginStruct/EndStruct are zero-width for byte-aligned fields. Verified
+//! against CANoe DE: the generated consumer decodes these six bytes into the
+//! struct fields unchanged.
+struct PropertyStatusFields
+{
+    //! The VHAL configures this property.
+    bool exists{false};
+    bool readable{false};
+    bool writable{false};
 
-} // namespace PropertyStatus
+    //! The name is in the AOSP VehicleProperty table. Independent of `exists`:
+    //! a name this vehicle does not implement answers knownName without exists,
+    //! which is what separates a typo from a missing feature.
+    bool knownName{false};
+
+    //! A TypeCode. Which accessor to call; None when VhalSimple cannot carry it.
+    int8_t valueType{0};
+
+    //! The bridge could not produce an answer: the VHAL was unreachable, its
+    //! configuration stream broke, or the request could not be decoded. The
+    //! other fields then hold only what was answerable offline, and `exists` is
+    //! always false. Distinct from an all-false answer, which means the name is
+    //! unknown - reporting an outage as "no such property" is the same
+    //! ambiguity this method exists to remove, one layer up.
+    bool queryFailed{false};
+};
 
 // ---- Declarations ----
 
@@ -173,14 +164,8 @@ auto DeserializeSetRequest(SilKit::Util::Span<const uint8_t> data) -> std::pair<
 template <typename T>
 auto SerializeResponse(const T& value) -> std::vector<uint8_t>;
 
-//! Pack a GetPropertyStatus word. `flags` is an OR of the PropertyStatus
-//! constants; `type` goes in the nibble. Kept separate from the flags so a
-//! caller cannot shift a type into the wrong bits by hand.
-auto MakeStatus(int32_t flags, TypeCode type) -> int32_t;
-
-//! The TypeCode a status word carries. Works on a kQueryFailed word too, since
-//! the type is answerable without the VHAL.
-auto StatusTypeCode(int32_t status) -> TypeCode;
+//! Response of GetPropertyStatus.
+auto SerializePropertyStatus(const PropertyStatusFields& fields) -> std::vector<uint8_t>;
 
 // ---- Implementation ----
 
@@ -246,19 +231,19 @@ auto SerializeResponse(const T& value) -> std::vector<uint8_t>
     return s.ReleaseBuffer();
 }
 
-inline auto MakeStatus(int32_t flags, TypeCode type) -> int32_t
+inline auto SerializePropertyStatus(const PropertyStatusFields& fields) -> std::vector<uint8_t>
 {
-    return flags | ((static_cast<int32_t>(type) & PropertyStatus::kTypeMask) << PropertyStatus::kTypeShift);
+    SilKit::Util::SerDes::Serializer s;
+    s.BeginStruct();
+    s.Serialize(fields.exists);
+    s.Serialize(fields.readable);
+    s.Serialize(fields.writable);
+    s.Serialize(fields.knownName);
+    s.Serialize(fields.valueType, 8);
+    s.Serialize(fields.queryFailed);
+    s.EndStruct();
+    return s.ReleaseBuffer();
 }
 
-inline auto StatusTypeCode(int32_t status) -> TypeCode
-{
-    // Shifted as unsigned: kQueryFailed sets the sign bit, and right-shifting a
-    // negative signed value is implementation-defined before C++20. The mask
-    // would clean up after an arithmetic shift anyway, but relying on that puts
-    // a language footnote between the caller and the answer.
-    const auto bits = static_cast<uint32_t>(status) >> static_cast<uint32_t>(PropertyStatus::kTypeShift);
-    return static_cast<TypeCode>(bits & static_cast<uint32_t>(PropertyStatus::kTypeMask));
-}
 
 } // namespace VhalSimpleApi

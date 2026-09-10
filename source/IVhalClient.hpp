@@ -148,7 +148,7 @@ using PropertyChangedHandler = std::function<void(const CarProperty&)>;
 //
 // What a backend can say about a property without reading its value. This is
 // the model behind the VhalSimple GetPropertyStatus method, kept here in
-// backend terms rather than as that method's bitfield: IVhalClient describes
+// backend terms rather than in that method's wire shape: IVhalClient describes
 // the VHAL, and it must not depend on the CANoe-facing contract.
 //
 // The enums restate the AOSP proto values numerically rather than including

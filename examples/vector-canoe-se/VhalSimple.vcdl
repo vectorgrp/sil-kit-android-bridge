@@ -12,6 +12,25 @@ import module "SilKit";
 
 namespace VhalSimple
 {
+  // Mirrors VhalSimpleApi::PropertyStatusFields in source/VhalSimpleApi.hpp;
+  // the field order is the wire format, so keep the two in step.
+  //
+  // valueType: 0 none, 1 int32, 2 int64, 3 float, 4 string, 5 bytes.
+  // knownName is independent of exists: a real AOSP name this vehicle does not
+  // implement answers knownName without exists, which is what separates a
+  // missing feature from a typo.
+  // queryFailed means the bridge could not answer at all; the other fields then
+  // hold only what it could determine without the VHAL.
+  struct VhalPropertyStatus
+  {
+    bool exists;
+    bool readable;
+    bool writable;
+    bool knownName;
+    int8 valueType;
+    bool queryFailed;
+  }
+
   [Binding="SilKit"]
   interface IVhalSimple
   {
@@ -36,24 +55,10 @@ namespace VhalSimple
     consumed method bytes GetBytes(string name);
     consumed method void  SetBytes(string name, bytes value);
 
-    // Capability bitfield for one property, so a test can ask instead of
-    // reading a 0 and guessing whether it meant "no such property".
-    //
-    //   bit0  0x01  exists in the VHAL's property configuration table
-    //   bit1  0x02  readable
-    //   bit2  0x04  writable
-    //   bit3  0x08  a known AOSP name (answered without asking the VHAL)
-    //   bits 8-11   which accessor to call: 0 none, 1 int32, 2 int64,
-    //               3 float, 4 string, 5 bytes
-    //   negative    the bridge could not reach the VHAL. The lower bits still
-    //               hold what was answerable offline.
-    //
-    // 0 means nothing is known about the name at all. A known name that this
-    // vehicle does not implement is 0x08 plus its type - non-zero with bit0
-    // clear - so test (status & 0x01), never (status != 0). Bits 4-7 and 12-30
-    // are reserved: mask what you need so a later addition stays additive.
-    // Keep in sync with VhalSimpleApi::PropertyStatus in source/VhalSimpleApi.hpp.
-    consumed method int32 GetPropertyStatus(string name);
+    // What the bridge knows about a property, without reading its value: the
+    // only way to tell "the value is 0" from "there is no such property",
+    // since every Get<Type> answers both with 0.
+    consumed method void GetPropertyStatus(in string name, out VhalPropertyStatus status);
   }
 
   IVhalSimple properties;

@@ -91,7 +91,7 @@ export testcase CheckAllPropertyTypes()
     char text[128] = "", textBefore[128] = "";
     byte blob[64], newSeed[4] = {0xCA, 0xFE, 0xBA, 0xBE};
     long blobLen = -1, blobLenBefore = -1;
-    long propStatus = -1;
+    struct VhalPropertyStatusView propStatus;
 
     status = VhalGetApiVersion(apiVersion);
     if (status > 0 && apiVersion == 1) {
@@ -204,31 +204,33 @@ export testcase CheckAllPropertyTypes()
     // reported rather than asserted; what must hold either way is that the
     // property is there and that the bridge recommends the float accessor.
     // Readable and known-name are asserted, not just printed: a bridge that
-    // reported NONE for every property - the exact failure the per-area access
-    // handling exists to prevent - would otherwise pass this step. Writability
-    // is only reported, because EV_BATTERY_LEVEL is read/write against --mock
-    // and read-only against a real VHAL.
+    // reported no access for every property - the exact failure the per-area
+    // access handling exists to prevent - would otherwise pass this step.
+    // Writability is only reported, because EV_BATTERY_LEVEL is read/write
+    // against --mock and read-only against a real VHAL.
     status = VhalGetPropertyStatus("EV_BATTERY_LEVEL", propStatus);
-    if (status > 0 && (propStatus & kVhalPropExists) && (propStatus & kVhalPropReadable)
-        && (propStatus & kVhalPropKnownName) && VhalPropertyType(propStatus) == kVhalTypeFloat) {
-        testStepPass("7.1", "GetPropertyStatus(EV_BATTERY_LEVEL) = 0x%X (writable=%d)",
-                     propStatus, (propStatus & kVhalPropWritable) != 0);
-    } else if (status > 0 && propStatus < 0) {
-        testStepFail("7.1", "the bridge could not reach the VHAL (0x%X)", propStatus);
+    if (status > 0 && propStatus.exists && propStatus.readable && propStatus.knownName
+        && propStatus.valueType == kVhalTypeFloat && !propStatus.queryFailed) {
+        testStepPass("7.1", "GetPropertyStatus(EV_BATTERY_LEVEL): exists, readable, writable=%d, float accessor",
+                     propStatus.writable);
+    } else if (status > 0 && propStatus.queryFailed) {
+        testStepFail("7.1", "the bridge could not reach the VHAL");
     } else if (status <= 0) {
         testStepFail("7.1", "no answer (status=%d): the bridge does not serve GetPropertyStatus, or the labels do not match.", status);
     } else {
-        testStepFail("7.1", "GetPropertyStatus(EV_BATTERY_LEVEL) = 0x%X, expected at least exists|readable|known-name and a float accessor", propStatus);
+        testStepFail("7.1", "GetPropertyStatus(EV_BATTERY_LEVEL): exists=%d readable=%d knownName=%d valueType=%d, expected exists+readable+knownName and a float accessor",
+                     propStatus.exists, propStatus.readable, propStatus.knownName, propStatus.valueType);
     }
 
     // The pair that makes step 6.1 above diagnosable: both reads answer 0, but
-    // the status word tells them apart. A real AOSP name this vehicle does not
-    // implement keeps its kKnownName bit; a typo has nothing set at all.
+    // the status tells them apart. A real AOSP name this vehicle does not
+    // implement keeps knownName; a typo has nothing set at all.
     status = VhalGetPropertyStatus("NOT_A_REAL_PROPERTY", propStatus);
-    if (status > 0 && propStatus == 0) {
-        testStepPass("7.2", "a mistyped name reports 0, so the 0 from step 6.1 is explained");
+    if (status > 0 && !propStatus.exists && !propStatus.knownName && !propStatus.queryFailed) {
+        testStepPass("7.2", "a mistyped name reports nothing known, so the 0 from step 6.1 is explained");
     } else {
-        testStepFail("7.2", "unknown name: status=%d, value=0x%X (expected 0)", status, propStatus);
+        testStepFail("7.2", "unknown name: status=%d exists=%d knownName=%d queryFailed=%d",
+                     status, propStatus.exists, propStatus.knownName, propStatus.queryFailed);
     }
 
     testStepPass("8.0", "All VhalSimple types exercised");

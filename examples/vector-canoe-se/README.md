@@ -42,38 +42,24 @@ A mismatch never fails loudly: SIL Kit simply does not pair the client with the
 server, and every call returns `ServerNotReachable`. That is what
 `GetApiVersion` is for, and why `CheckEvBatteryProperties` calls it first.
 
-`GetPropertyStatus` adds a fourth thing the two halves must agree on, and it
-behaves unlike the three above. A mismatch in a name, label or wire format
+`GetPropertyStatus` adds a fourth thing the two halves must agree on: the field
+order of `struct VhalPropertyStatus`. A mismatch in a name, label or wire format
 stops the call from matching at all, which is loud once you know to expect
-`ServerNotReachable`. These bit numbers are not a matching key: get them wrong
-and the call succeeds and is misread. CAPL cannot include the C++ header, so
-`VhalUtils.cin` restates them by hand and nothing mechanically checks the two
-against each other - `Test_VhalSimpleApi.cpp` only pins the C++ side.
+`ServerNotReachable`. Field order is not a matching key: reorder it on one side
+and the call succeeds and is misread.
 
-| Bits | Meaning |
-|------|---------|
-| `0x01` | the VHAL configures this property |
-| `0x02` | readable |
-| `0x04` | writable |
-| `0x08` | a known AOSP property name, answered without asking the VHAL |
-| bits 8-11 | which accessor to use: `0` none, `1` int32, `2` int64, `3` float, `4` string, `5` bytes |
-| negative | the bridge could not reach the VHAL; the lower bits still hold what was answerable offline |
+| Field | Meaning |
+|---|---|
+| `exists` | the VHAL configures this property |
+| `readable` / `writable` | the access the VHAL declares |
+| `knownName` | the name is in the compiled-in AOSP table |
+| `valueType` | which accessor to use: `0` none, `1` int32, `2` int64, `3` float, `4` string, `5` bytes |
+| `queryFailed` | the bridge could not answer at all |
 
-`0` means the name is unknown to the bridge entirely, so a known name this
-vehicle does not implement is `0x08` plus its type - non-zero with `0x01` clear.
-Test `(status & kVhalPropExists)`, never `status != 0`. Bits 4-7 and 12-30 are
-reserved. `Test_VhalSimpleApi.cpp` pins these numbers on the C++ side.
-
-The adapter defaults to exactly the values `sil-adapter-builder` generates from
-this VCDL, so a CANoe participant built against it matches with no extra
-configuration. `sil-adapter-builder` is the Vector tool that turns a `.vcdl`
-binding into the SIL Kit participant configuration; it ships with CANoe and is
-not part of this repository.
-
-`test/ITest_VhalSilKitAdapter.cpp` stands in for this whole directory in CI: it
-fakes the CANoe side with a plain SIL Kit participant using the same function
-names and labels, so the contract is regression-tested without CANoe. The
-`silkit-client` tool does the same thing interactively.
+`knownName` is independent of `exists`, so a known name this vehicle does not
+implement has `knownName` set and `exists` clear. Test `st.exists`, never "is
+anything set". Only the `valueType` codes are restated by hand in
+`VhalUtils.cin`; the flags are struct fields, so they cannot drift.
 
 ## Running against a real device
 

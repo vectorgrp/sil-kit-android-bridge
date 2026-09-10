@@ -40,14 +40,15 @@ each call to the VHAL.
 | `bytes` | `bytes GetBytes(string name)` | `void SetBytes(string name, bytes value)` |
 
 Plus `int32 GetApiVersion()`, so a CANoe configuration can check it speaks the
-same dialect, and `int32 GetPropertyStatus(string name)`, which reports whether
-a property exists, what access the VHAL declares, and which accessor to use.
+same dialect, and `GetPropertyStatus`, which answers a small struct saying
+whether a property exists, what access the VHAL declares, and which accessor to
+use.
 
 Properties are addressed by their AOSP name (`EV_BATTERY_LEVEL`,
 `RANGE_REMAINING`, ...). AOSP `BOOLEAN` properties travel over the `int32`
 methods as 0/1.
 
-Full reference, including the `GetPropertyStatus` bitfield and what is out of
+Full reference, including the `GetPropertyStatus` struct and what is out of
 scope: **[docs/vhal-simple-api.md](docs/vhal-simple-api.md)**.
 
 ## Build
@@ -170,7 +171,7 @@ Vector tooling; everything else in this repository does not.
 ## Documentation
 
 - [docs/vhal-simple-api.md](docs/vhal-simple-api.md) - the API in full: every
-  method, the `GetPropertyStatus` bitfield, scope, and the wire contract
+  method, the `GetPropertyStatus` struct, scope, and the wire contract
 - [docs/building.md](docs/building.md) - prerequisites, Conan on Windows,
   packaging and releasing
 - [AGENTS.md](AGENTS.md) - engineering rules and the test layout

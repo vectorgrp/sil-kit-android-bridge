@@ -18,8 +18,8 @@ Plus two methods that are not property accessors:
 - `int32 GetApiVersion()` reports the contract version, so a CANoe configuration
   can check it speaks the same dialect. Bumped when a method changes or is
   removed, unchanged when one is added.
-- `int32 GetPropertyStatus(string name)` reports what the bridge knows about a
-  property without reading its value. See below.
+- `GetPropertyStatus(in string name, out VhalPropertyStatus status)` reports what
+  the bridge knows about a property without reading its value. See below.
 
 AOSP `BOOLEAN` properties travel over the `int32` methods as 0/1.
 
@@ -40,39 +40,59 @@ All three cases are logged by the bridge, in both directions, and a non-OK VHAL
 
 ## GetPropertyStatus
 
-Returns a bitfield:
+```vcdl
+struct VhalPropertyStatus
+{
+  bool exists;
+  bool readable;
+  bool writable;
+  bool knownName;
+  int8 valueType;
+  bool queryFailed;
+}
 
-| Bits | Meaning |
-|------|---------|
-| `0x01` | the VHAL configures this property |
-| `0x02` | readable |
-| `0x04` | writable |
-| `0x08` | a known AOSP property name, answered without asking the VHAL |
-| bits 8-11 | which accessor to use: `0` none, `1` int32, `2` int64, `3` float, `4` string, `5` bytes |
-| negative | the bridge could not answer; the lower bits still hold what was answerable offline |
+consumed method void GetPropertyStatus(in string name, out VhalPropertyStatus status);
+```
 
-`0` means the name is unknown to the bridge entirely. A real AOSP name that this
-vehicle does not implement answers `0x08` plus its type - non-zero with `0x01`
-clear - which is what separates a missing feature from a typo. So test
-`status & 0x01`, never `status != 0`.
+| Field | Meaning |
+|---|---|
+| `exists` | the VHAL configures this property |
+| `readable` / `writable` | the access the VHAL declares |
+| `knownName` | the name is in the compiled-in AOSP table, answered without asking the VHAL |
+| `valueType` | which accessor to use: `0` none, `1` int32, `2` int64, `3` float, `4` string, `5` bytes |
+| `queryFailed` | the bridge could not answer at all |
 
-Bits 4-7 and 12-30 are reserved: mask what you need, and a later addition stays
-additive.
+`knownName` is independent of `exists`. A real AOSP name that this vehicle does
+not implement answers `knownName` with `exists` clear, which is what separates a
+missing feature from a typo. An all-false answer means the name is unknown
+entirely, so test `exists`, never "is anything set".
+
+`queryFailed` is deliberately distinct from an all-false answer: reporting an
+outage as "no such property" is the same ambiguity this method exists to remove.
+When it is set, the other fields carry only what was answerable offline and
+`exists` is always false.
+
+On the wire this is six bytes, one per field in declaration order. SIL Kit
+SerDes encodes `bool` as an aligned 0/1 byte and `int8` as one byte, and struct
+framing is zero-width. Verified against CANoe DE: the bridge emits
+`01 01 01 01 03 00` for a seeded float property and `00 00 00 00 00 00` for an
+unknown name, and the generated consumer decodes both into the right fields.
+`Test_VhalSimpleApi` pins those two vectors.
 
 Three limits worth knowing before relying on it:
 
 - **It answers about the property, not about the area.** Access is the union
   across every area the VHAL declares, while `Get<Type>`/`Set<Type>` always
   address area `0` - the API has no area parameter. For a property whose areas
-  exclude `0`, or whose areas differ in access, the status word is broader than
-  what an accessor will actually manage.
-- **It does not promise the read will succeed.** `0x02` means the VHAL declares
-  the property readable, not that this particular read will return data; a VHAL
-  may still refuse one with a non-OK `StatusCode`, which still arrives as `0`.
-  The method answers existence and accessor choice.
-- **`0x08` comes from the compiled-in AOSP table**, so it is available even with
-  no VHAL at all, and it is *not* set for a vendor property the VHAL configures
-  but AOSP has never heard of.
+  exclude `0`, or whose areas differ in access, the answer is broader than what
+  an accessor will actually manage.
+- **It does not promise the read will succeed.** `readable` means the VHAL
+  declares the property readable, not that this particular read will return
+  data; a VHAL may still refuse one with a non-OK `StatusCode`, which still
+  arrives as `0`. The method answers existence and accessor choice.
+- **`knownName` comes from the compiled-in AOSP table**, so it is available even
+  with no VHAL at all, and it is *not* set for a vendor property the VHAL
+  configures but AOSP has never heard of.
 
 Against `--mock` every seeded property reports read/write, because that is what
 the mock does; see
