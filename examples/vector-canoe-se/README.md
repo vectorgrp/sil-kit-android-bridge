@@ -16,9 +16,9 @@ you do not have CANoe.
 
 | File | Role |
 |------|------|
-| `VhalSimple.vcdl` | The interface contract. Declares namespace `VhalSimple`, the `IVhalSimple` interface with the ten property methods plus `GetApiVersion`, and the object `properties`. |
-| `VhalUtils.cin` | CAPL helpers wrapping each method in an async call plus `testWaitForAnswer`: `VhalGetInt32` / `VhalSetInt32` and the same pair for `Int64`, `Float`, `String` and `Bytes`, plus `VhalGetApiVersion`. |
-| `VhalTest.can` | Three CAPL test cases. `CheckEvBatteryProperties` drives `EV_BATTERY_LEVEL` through a ramp. `CheckAllPropertyTypes` checks the API version and then, for each of the five types, that the read answers (step `x.1`) and that a write round-trips (step `x.2`); it asserts nothing about which values a property holds, so it passes against `--mock` and against a real device. `CheckMockSeedValues` asserts the exact `--mock` seed values and is therefore not in the default test tree. |
+| `VhalSimple.vcdl` | The interface contract. Declares namespace `VhalSimple`, the `IVhalSimple` interface with the ten property methods plus `GetApiVersion` and `GetPropertyStatus`, and the object `properties`. |
+| `VhalUtils.cin` | CAPL helpers wrapping each method in an async call plus `testWaitForAnswer`: `VhalGetInt32` / `VhalSetInt32` and the same pair for `Int64`, `Float`, `String` and `Bytes`, plus `VhalGetApiVersion`, `VhalGetPropertyStatus` and the `VhalPropertyType` helper that unpacks its type nibble. |
+| `VhalTest.can` | Three CAPL test cases. `CheckEvBatteryProperties` drives `EV_BATTERY_LEVEL` through a ramp. `CheckAllPropertyTypes` checks the API version and then, for each of the five types, that the read answers (step `x.1`) and that a write round-trips (step `x.2`); step 7 then asks `GetPropertyStatus` which property exists and which accessor it needs; it asserts nothing about which values a property holds, so it passes against `--mock` and against a real device. `CheckMockSeedValues` asserts the exact `--mock` seed values and is therefore not in the default test tree. |
 | `venvironment.yaml` | Virtual environment: binds `VhalSimple.vcdl` and sets the SIL Kit participant name to `canoe-vhal-test`. |
 | `VhalTest.vtestunit.yaml` | Test unit: `VhalTest.can` plus the test tree. |
 | `VhalTest.vtesttree.yaml` | Test tree: the single CAPL test case to execute. |
@@ -42,16 +42,24 @@ A mismatch never fails loudly: SIL Kit simply does not pair the client with the
 server, and every call returns `ServerNotReachable`. That is what
 `GetApiVersion` is for, and why `CheckEvBatteryProperties` calls it first.
 
-The adapter defaults to exactly the values `sil-adapter-builder` generates from
-this VCDL, so a CANoe participant built against it matches with no extra
-configuration. `sil-adapter-builder` is the Vector tool that turns a `.vcdl`
-binding into the SIL Kit participant configuration; it ships with CANoe and is
-not part of this repository.
+`GetPropertyStatus` adds a fourth thing the two halves must agree on: the field
+order of `struct VhalPropertyStatus`. A mismatch in a name, label or wire format
+stops the call from matching at all, which is loud once you know to expect
+`ServerNotReachable`. Field order is not a matching key: reorder it on one side
+and the call succeeds and is misread.
 
-`test/ITest_VhalSilKitAdapter.cpp` stands in for this whole directory in CI: it
-fakes the CANoe side with a plain SIL Kit participant using the same function
-names and labels, so the contract is regression-tested without CANoe. The
-`silkit-client` tool does the same thing interactively.
+| Field | Meaning |
+|---|---|
+| `exists` | the VHAL configures this property |
+| `readable` / `writable` | the access the VHAL declares |
+| `knownName` | the name is in the compiled-in AOSP table |
+| `valueType` | which accessor to use: `0` none, `1` int32, `2` int64, `3` float, `4` string, `5` bytes |
+| `queryFailed` | the bridge could not answer at all |
+
+`knownName` is independent of `exists`, so a known name this vehicle does not
+implement has `knownName` set and `exists` clear. Test `st.exists`, never "is
+anything set". Only the `valueType` codes are restated by hand in
+`VhalUtils.cin`; the flags are struct fields, so they cannot drift.
 
 ## Running against a real device
 
@@ -102,6 +110,22 @@ plausible zero. `CheckAllPropertyTypes` asserts against exactly these:
 The seed lives in [`source/VhalMockClient.hpp`](../../source/VhalMockClient.hpp);
 add a property there and it is immediately reachable from CANoe.
 
+### Running against --mock
+
+Against `--mock`, `GetPropertyStatus` reports every seeded property above as
+`exists | readable | writable | known name` plus its type, because the mock
+hands back everything it stores and accepts a write to any of it. A real VHAL
+reports whatever access its configuration table declares, so `EV_BATTERY_LEVEL`
+is typically read-only there. A known AOSP name that is not seeded answers
+`0x08` plus its type, and a name outside the AOSP table answers `0`.
+
+Two consequences for the shipped example specifically. `VhalMockClient` has no
+way to report a read-only or write-only property, so step `7.1` asserts only
+readability and prints writability - per-area and write-only access can be
+validated against hardware and nowhere else. And `VhalMockClient::GetPropertyInfo`
+cannot fail, so the negative "could not answer" branch of step `7.1` is
+unreachable under `--mock`; it exists for the device case.
+
 **Use the method family that matches the AOSP type.** The mock declares each
 value with the type AOSP declares for that property id, exactly as a device would,
 so `GetFloat("EV_BATTERY_LEVEL")` works and `GetInt32` on it returns `0` and logs
@@ -150,8 +174,15 @@ a type mismatch. Two consequences worth knowing:
   Reading is confirmed end to end - `DE AD BE EF` renders in the CANoe trace
   window, which also settles that `sil-adapter-builder` and SIL Kit SerDes agree
   on the wire format (a `uint32` length prefix then raw bytes, identical to
-  `string`). The write direction is step `6.2` of `CheckAllPropertyTypes` and has
+  `string`). The write direction is step `5.2` of `CheckAllPropertyTypes` and has
   not been run yet.
+- Step `7` of `CheckAllPropertyTypes` (`GetPropertyStatus`) has not been run
+  yet. It is also the step most likely to fail first against a device: the
+  bridge preloads the property configuration table at startup so the call does
+  not stream it inside `testWaitForAnswer`'s 100 ms, but that preload is best
+  effort, and a VHAL with a slow or very large table would push the first call
+  past the budget. If step `7.1` reports no answer, raise `maxWait` before
+  suspecting the contract.
 - The CAPL helpers copy the result into a caller-supplied buffer, so size it for
   the properties you read. `VhalGetBytes` also returns the length, taken from
   `elcount()` on the result, which is how Vector's own samples bound a `bytes`

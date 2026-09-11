@@ -85,6 +85,7 @@ protected:
         getBytesClient_ = add(Api::Method::kGetBytes);
         setBytesClient_ = add(Api::Method::kSetBytes);
         versionClient_ = add(Api::Method::kGetApiVersion);
+        statusClient_ = add(Api::Method::kGetPropertyStatus);
         // Same discovery round as the well-named clients, so that
         // WrongFunctionNameDoesNotMatch compares like with like. The function name
         // here is the fully qualified path, which is the old broken behavior - it
@@ -129,6 +130,7 @@ protected:
     Rpc::IRpcClient* getBytesClient_{nullptr};
     Rpc::IRpcClient* setBytesClient_{nullptr};
     Rpc::IRpcClient* versionClient_{nullptr};
+    Rpc::IRpcClient* statusClient_{nullptr};
     Rpc::IRpcClient* badClient_{nullptr};
 };
 
@@ -168,6 +170,84 @@ TEST_F(AdapterRpcTest, SetThenGetFloatRoundTrip)
     const auto getResult = canoe_->Call(getFloatClient_, ToSpan(GetReq("RANGE_REMAINING")));
     ASSERT_EQ(getResult.status, Rpc::RpcCallStatus::Success);
     EXPECT_FLOAT_EQ(ParseFloat(getResult.data), 21.5f);
+}
+
+// ---- GetPropertyStatus ----
+//
+// The method that makes UnknownPropertyReturnsZero below survivable: every
+// Get<Type> answers a failure with a default value, so a caller needs some way
+// to tell "battery at 0%" from "no such property" without reading the value.
+//
+// The first two cases are the vectors verified against CANoe DE.
+
+TEST_F(AdapterRpcTest, PropertyStatusForASeededProperty)
+{
+    const auto result = canoe_->Call(statusClient_, ToSpan(GetReq("RANGE_REMAINING")));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+    EXPECT_EQ(result.data, (std::vector<uint8_t>{1, 1, 1, 1, 3, 0}));
+
+    const auto view = test::ParsePropertyStatus(result.data);
+    EXPECT_TRUE(view.exists);
+    EXPECT_TRUE(view.readable);
+    EXPECT_TRUE(view.writable);
+    EXPECT_TRUE(view.knownName);
+    EXPECT_EQ(view.valueType, static_cast<int8_t>(Api::TypeCode::Float));
+    EXPECT_FALSE(view.queryFailed);
+}
+
+TEST_F(AdapterRpcTest, PropertyStatusForAnUnknownProperty)
+{
+    const auto result = canoe_->Call(statusClient_, ToSpan(GetReq("SOME_NONEXISTENT")));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+    EXPECT_EQ(result.data, (std::vector<uint8_t>{0, 0, 0, 0, 0, 0}));
+}
+
+// The type field is why a caller does not have to guess which Get<Type> to
+// call. Guessing wrong returns a plausible-looking zero.
+TEST_F(AdapterRpcTest, PropertyStatusReportsWhichAccessorToUse)
+{
+    auto typeOf = [&](const char* name) {
+        const auto result = canoe_->Call(statusClient_, ToSpan(GetReq(name)));
+        EXPECT_EQ(result.status, Rpc::RpcCallStatus::Success);
+        return test::ParsePropertyStatus(result.data).valueType;
+    };
+    EXPECT_EQ(typeOf("INFO_MODEL_YEAR"), static_cast<int8_t>(Api::TypeCode::Int32));
+    EXPECT_EQ(typeOf("ANDROID_EPOCH_TIME"), static_cast<int8_t>(Api::TypeCode::Int64));
+    EXPECT_EQ(typeOf("EV_BATTERY_LEVEL"), static_cast<int8_t>(Api::TypeCode::Float));
+    EXPECT_EQ(typeOf("INFO_VIN"), static_cast<int8_t>(Api::TypeCode::String));
+    EXPECT_EQ(typeOf("STORAGE_ENCRYPTION_BINDING_SEED"), static_cast<int8_t>(Api::TypeCode::Bytes));
+}
+
+// A name AOSP knows that this backend does not have. knownName without exists -
+// that asymmetry is the whole diagnostic value, since it separates a property
+// this vehicle lacks from a name that was simply mistyped.
+TEST_F(AdapterRpcTest, PropertyStatusDistinguishesAMissingPropertyFromATypo)
+{
+    const auto missing = canoe_->Call(statusClient_, ToSpan(GetReq("PERF_STEERING_ANGLE")));
+    ASSERT_EQ(missing.status, Rpc::RpcCallStatus::Success);
+    const auto missingView = test::ParsePropertyStatus(missing.data);
+    EXPECT_TRUE(missingView.knownName);
+    EXPECT_FALSE(missingView.exists);
+
+    const auto typo = canoe_->Call(statusClient_, ToSpan(GetReq("NOT_A_REAL_PROPERTY")));
+    ASSERT_EQ(typo.status, Rpc::RpcCallStatus::Success);
+    EXPECT_EQ(typo.data, (std::vector<uint8_t>{0, 0, 0, 0, 0, 0}));
+}
+
+// A value written under a non-AOSP name exists but has no id, so exists is set
+// and knownName is not. The mirror image of the case above, and together they
+// prove the two fields are independent rather than one implying the other.
+TEST_F(AdapterRpcTest, PropertyStatusReportsANonAospNameAsExistingButUnknown)
+{
+    ASSERT_EQ(canoe_->Call(setFloatClient_, ToSpan(SetFloatReq("CABIN_TEMP", 21.5f))).status,
+              Rpc::RpcCallStatus::Success);
+
+    const auto result = canoe_->Call(statusClient_, ToSpan(GetReq("CABIN_TEMP")));
+    ASSERT_EQ(result.status, Rpc::RpcCallStatus::Success);
+    const auto view = test::ParsePropertyStatus(result.data);
+    EXPECT_TRUE(view.exists);
+    EXPECT_FALSE(view.knownName);
+    EXPECT_EQ(view.valueType, static_cast<int8_t>(Api::TypeCode::None)) << "no AOSP entry, so no accessor to recommend";
 }
 
 TEST_F(AdapterRpcTest, UnknownPropertyReturnsZero)
@@ -284,7 +364,7 @@ TEST_F(AdapterRpcTest, WrongTypeReturnsZero)
 // so its complete server set is known here.
 TEST_F(AdapterRpcTest, WrongFunctionNameDoesNotMatch)
 {
-    const auto result = canoe_->Call(badClient_, ToSpan(GetReq("INFO_MODEL_YEAR")));
+    const auto result = canoe_->CallOnce(badClient_, ToSpan(GetReq("INFO_MODEL_YEAR")));
     EXPECT_EQ(result.status, Rpc::RpcCallStatus::ServerNotReachable);
 
     // ...while the correctly-named client on the same participant does match.

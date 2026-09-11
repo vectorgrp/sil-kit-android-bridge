@@ -5,6 +5,8 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -45,6 +47,7 @@ public:
     auto RemovePropertyChangedHandler(int handlerId) -> void override;
     auto GetAllProperties() -> std::vector<std::string> override;
     bool CheckHealth() override;
+    auto GetPropertyInfo(std::string_view name) -> std::optional<PropertyInfo> override;
 
     bool PrintAllProperties(std::ostream& output);
 
@@ -207,9 +210,31 @@ public:
     void StartPropertyValuesStream();
 
 private:
+    //! Stream the whole property configuration table. Throws VhalClientError on
+    //! a non-OK final status: a stream that dies partway leaves a short table
+    //! that is indistinguishable from a complete one, and every "absent" then
+    //! answered from it would be a lie. Caller holds configMutex_.
+    auto LoadPropertyConfigs() -> std::map<std::string, PropertyInfo>;
+
+    //! Populate the cache on first use. Caller holds configMutex_.
+    void EnsureConfigCache();
+
     std::unique_ptr<VehicleServer::Stub> stub_;
     std::map<int, std::pair<std::string, PropertyChangedHandler>> handlers_;
     int nextHandlerId_ = 1;
+
+    // The VHAL's property configuration table, streamed once. AOSP treats
+    // configs as fixed for the VHAL's lifetime, so caching is correct - though a
+    // VHAL restarting under a running bridge would be served a stale table.
+    //
+    // Guarded because SIL Kit dispatches the adapter's RPC handlers on its own
+    // thread. The lock is held across the gRPC call so that concurrent callers
+    // wait for the one stream in flight instead of each starting another; the
+    // stub does not call back into this client, so there is nothing to deadlock
+    // against.
+    std::mutex configMutex_;
+    bool configLoaded_{false};
+    std::map<std::string, PropertyInfo> configByName_;
 };
 
 inline void printResults(const GetValueResults& results, std::ostream& out = std::cout)

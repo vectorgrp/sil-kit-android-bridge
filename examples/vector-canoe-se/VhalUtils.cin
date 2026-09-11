@@ -9,7 +9,29 @@
 variables
 {
     int maxWait = 100; //milliseconds
+
+    // GetPropertyStatus valueType. The flags themselves are struct fields, so
+    // only these codes are restated by hand; Test_VhalSimpleApi pins them on
+    // the other side.
+    long kVhalTypeNone      = 0;
+    long kVhalTypeInt32     = 1;
+    long kVhalTypeInt64     = 2;
+    long kVhalTypeFloat     = 3;
+    long kVhalTypeString    = 4;
+    long kVhalTypeBytes     = 5;
 }
+
+// Mirrors struct VhalPropertyStatus in VhalSimple.vcdl, as a plain CAPL struct
+// so no vCDL type has to be named in a declaration.
+struct VhalPropertyStatusView
+{
+    long exists;
+    long readable;
+    long writable;
+    long knownName;
+    long valueType;
+    long queryFailed;
+};
 
 // Contract version served by the bridge. Compare against the value this VCDL was
 // written for; a mismatch explains an otherwise silent failure to match.
@@ -21,6 +43,38 @@ int VhalGetApiVersion(long& value)
     status = testWaitForAnswer(cc, maxWait);
     if(status > 0) {
         value = cc.Result;
+    }
+    return status;
+}
+
+// What the bridge knows about one property, without reading its value. This is
+// the only way to tell "the property is 0" from "there is no such property":
+// every Get<Type> answers both with 0.
+//
+// Returns the testWaitForAnswer status; st is only valid when it is > 0. A
+// bridge that does not serve the method never matches this client, so the call
+// returns ServerNotReachable, which arrives here as status <= 0. Check the
+// return code before the struct, always.
+//
+// The out-parameter is copied field by field into a CAPL-local struct rather
+// than declaring a variable of the vCDL type directly, because the CAPL syntax
+// for the latter is unverified. If it turns out a vCDL struct can be declared
+// locally, this collapses to one assignment.
+int VhalGetPropertyStatus(char name[], struct VhalPropertyStatusView st)
+{
+    int status = -1;
+    callcontext properties.GetPropertyStatus cc;
+    st.exists = 0; st.readable = 0; st.writable = 0;
+    st.knownName = 0; st.valueType = 0; st.queryFailed = 0;
+    cc = properties.GetPropertyStatus.CallAsync(name);
+    status = testWaitForAnswer(cc, maxWait);
+    if(status > 0) {
+        st.exists      = cc.status.exists;
+        st.readable    = cc.status.readable;
+        st.writable    = cc.status.writable;
+        st.knownName   = cc.status.knownName;
+        st.valueType   = cc.status.valueType;
+        st.queryFailed = cc.status.queryFailed;
     }
     return status;
 }

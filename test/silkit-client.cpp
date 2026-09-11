@@ -160,6 +160,27 @@ auto WireTypeFor(const std::string& name, const std::string& value) -> WireType
 // For a read (no value hint) the family comes from the property table only.
 auto WireTypeFor(const std::string& name) -> WireType { return WireTypeFor(name, std::string{}); }
 
+// The accessor a GetPropertyStatus type nibble names, for printing.
+auto TypeCodeName(VhalSimpleApi::TypeCode type) -> const char*
+{
+    switch (type)
+    {
+    case VhalSimpleApi::TypeCode::Int32:
+        return "int32";
+    case VhalSimpleApi::TypeCode::Int64:
+        return "int64";
+    case VhalSimpleApi::TypeCode::Float:
+        return "float";
+    case VhalSimpleApi::TypeCode::String:
+        return "string";
+    case VhalSimpleApi::TypeCode::Bytes:
+        return "bytes";
+    case VhalSimpleApi::TypeCode::None:
+        break;
+    }
+    return "none";
+}
+
 // Bytes are shown and accepted as hex, since a byte array has no useful literal
 // form on a command line.
 auto HexOf(const std::vector<uint8_t>& bytes) -> std::string
@@ -265,6 +286,7 @@ Logging:
         getBytes_ = add(Method::kGetBytes);
         setBytes_ = add(Method::kSetBytes);
         version_ = add(Method::kGetApiVersion);
+        propertyStatus_ = add(Method::kGetPropertyStatus);
 
         // An autonomous lifecycle keeps this participant a first-class simulation
         // member so RPC discovery/communication with the bridge works standalone.
@@ -300,6 +322,43 @@ Logging:
         if (res.status != Rpc::RpcCallStatus::Success)
             return std::nullopt;
         return ParseValue<int32_t>(res.data);
+    }
+
+    //! Ask the bridge what it knows about a property, and print it decoded.
+    //! This is the only way to tell a property that holds 0 from one that does
+    //! not exist, so it is worth reaching for before blaming a name.
+    void PropertyStatus(const std::string& name)
+    {
+        const auto reqBytes = GetReq(name);
+        const auto res = Call(propertyStatus_, ToSpan(reqBytes));
+        if (res.status != Rpc::RpcCallStatus::Success)
+        {
+            print("STAT {} FAILED: {}", name, StatusName(res.status));
+            return;
+        }
+
+        SerDes::Deserializer d{res.data};
+        const auto exists = d.Deserialize<bool>();
+        const auto readable = d.Deserialize<bool>();
+        const auto writable = d.Deserialize<bool>();
+        const auto knownName = d.Deserialize<bool>();
+        const auto valueType = d.Deserialize<int8_t>(8);
+        const auto queryFailed = d.Deserialize<bool>();
+
+        if (queryFailed)
+        {
+            print("STAT {} could not be answered (VHAL unreachable, or a malformed request){}", name,
+                  knownName ? ", but AOSP knows the name" : "");
+            return;
+        }
+        if (!exists && !knownName)
+        {
+            print("STAT {} unknown to the bridge: not configured, and not an AOSP property name", name);
+            return;
+        }
+        print("STAT {} {}{}{}{} accessor={}", name, exists ? "exists " : "not-configured ", readable ? "readable " : "",
+              writable ? "writable " : "", knownName ? "aosp-name " : "",
+              TypeCodeName(static_cast<VhalSimpleApi::TypeCode>(valueType)));
     }
 
     // Read a single property and print its value.
@@ -464,6 +523,7 @@ private:
     Rpc::IRpcClient* getBytes_{nullptr};
     Rpc::IRpcClient* setBytes_{nullptr};
     Rpc::IRpcClient* version_{nullptr};
+    Rpc::IRpcClient* propertyStatus_{nullptr};
     Rpc::IRpcClient* getInt_{nullptr};
     Rpc::IRpcClient* setInt_{nullptr};
     Rpc::IRpcClient* getFloat_{nullptr};
@@ -477,6 +537,9 @@ private:
 const std::regex kAssignRe{R"(^\s*([A-Za-z_][A-Za-z0-9_.]*)\s*=\s*(.+?)\s*$)"};
 // bare PROPERTY  -> read only
 const std::regex kGetRe{R"(^\s*([A-Za-z_][A-Za-z0-9_.]*)\s*$)"};
+// "?PROPERTY" asks what the bridge knows about a property instead of reading it.
+// Quote it on a shell command line, or the '?' is taken as a glob.
+const std::regex kStatusRe{R"(^\s*\?\s*([A-Za-z_][A-Za-z0-9_.]*)\s*$)"};
 
 // Apply one "PROPERTY=value" or "PROPERTY" line. Blank lines and '#' comments are
 // ignored. Returns false only for a line that matches no accepted form.
@@ -494,12 +557,17 @@ auto ProcessLine(BridgeClient& client, const std::string& line) -> bool
         client.Set(m[1].str(), m[2].str());
         return true;
     }
+    if (std::regex_match(trimmed, m, kStatusRe))
+    {
+        client.PropertyStatus(m[1].str());
+        return true;
+    }
     if (std::regex_match(trimmed, m, kGetRe))
     {
         client.Get(m[1].str());
         return true;
     }
-    print("Cannot parse '{}': expected PROPERTY=value or PROPERTY", line);
+    print("Cannot parse '{}': expected PROPERTY=value, PROPERTY or ?PROPERTY", line);
     return false;
 }
 
@@ -552,9 +620,10 @@ int main(int argc, char** argv) try
         "log", "l", "Off", "[--log <level>]",
         "-l, --log <level>: SIL Kit log level (Trace, Debug, Info, Warn, Error, Critical, Off). Defaults to 'Off'.");
     parser.Add<CliParser::PositionalList>(
-        "assignments", "[PROPERTY=value ...]",
-        "PROPERTY=value ...: Properties to set (with read-back). A bare PROPERTY reads. "
-        "If omitted, assignments are read from stdin.");
+        "assignments", "[PROPERTY=value | PROPERTY | ?PROPERTY ...]",
+        "PROPERTY=value ...: Properties to set (with read-back). A bare PROPERTY reads, and "
+        "'?PROPERTY' (quote it, or the shell globs it) reports whether the property exists and "
+        "which accessor it needs. If omitted, assignments are read from stdin.");
 
     try
     {

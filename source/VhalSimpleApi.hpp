@@ -51,6 +51,10 @@
 //     request : (empty)
 //     response: int32(32)
 //
+//   GetPropertyStatus(string name) -> VhalPropertyStatus
+//     request : string(name)
+//     response: six bytes, one per struct field in declaration order
+//
 // where <Type> is int32(32), int64(64), float, a uint32-length-prefixed string,
 // or a uint32-length-prefixed byte array.
 
@@ -81,7 +85,65 @@ inline constexpr auto kGetString = "GetString";
 inline constexpr auto kSetString = "SetString";
 inline constexpr auto kGetBytes = "GetBytes";
 inline constexpr auto kSetBytes = "SetBytes";
+
+//! Introspection. Additive, so kApiVersion is unchanged.
+inline constexpr auto kGetPropertyStatus = "GetPropertyStatus";
 } // namespace Method
+
+// ---- GetPropertyStatus ----
+//
+// Every Get<Type> answers a failure with a default value, so a caller cannot
+// tell "battery at 0%" from "no such property". GetPropertyStatus is the way to
+// ask instead of guessing, and it is one call rather than a status
+// out-parameter on all ten accessors - which would have changed every existing
+// signature and broken every CANoe configuration built against v1.
+
+//! Which Get<Type>/Set<Type> pair addresses a property. Answered from the
+//! compiled-in AOSP table, so it is available even for a property the vehicle
+//! does not implement. This closes the silent-zero trap: GetInt32 on a float
+//! property returns 0 and looks like data.
+enum class TypeCode : int8_t
+{
+    //! Not representable in VhalSimple: INT32_VEC, FLOAT_VEC, MIXED and friends.
+    //! See the Scope note above - these are a data-model gap, not a missing method.
+    None = 0,
+    Int32 = 1, //!< also carries AOSP BOOLEAN, as 0/1
+    Int64 = 2,
+    Float = 3,
+    String = 4,
+    Bytes = 5,
+};
+
+//! Mirrors `struct VhalPropertyStatus` in VhalSimple.vcdl.
+//!
+//! Wire layout is one byte per field in declaration order, six in total: SIL
+//! Kit SerDes encodes bool as an aligned 0/1 byte and int8 as one byte, and
+//! BeginStruct/EndStruct are zero-width for byte-aligned fields. Verified
+//! against CANoe DE: the generated consumer decodes these six bytes into the
+//! struct fields unchanged.
+struct PropertyStatusFields
+{
+    //! The VHAL configures this property.
+    bool exists{false};
+    bool readable{false};
+    bool writable{false};
+
+    //! The name is in the AOSP VehicleProperty table. Independent of `exists`:
+    //! a name this vehicle does not implement answers knownName without exists,
+    //! which is what separates a typo from a missing feature.
+    bool knownName{false};
+
+    //! A TypeCode. Which accessor to call; None when VhalSimple cannot carry it.
+    int8_t valueType{0};
+
+    //! The bridge could not produce an answer: the VHAL was unreachable, its
+    //! configuration stream broke, or the request could not be decoded. The
+    //! other fields then hold only what was answerable offline, and `exists` is
+    //! always false. Distinct from an all-false answer, which means the name is
+    //! unknown - reporting an outage as "no such property" is the same
+    //! ambiguity this method exists to remove, one layer up.
+    bool queryFailed{false};
+};
 
 // ---- Declarations ----
 
@@ -101,6 +163,9 @@ auto DeserializeSetRequest(SilKit::Util::Span<const uint8_t> data) -> std::pair<
 //! Response of Get<Type>, and of GetApiVersion.
 template <typename T>
 auto SerializeResponse(const T& value) -> std::vector<uint8_t>;
+
+//! Response of GetPropertyStatus.
+auto SerializePropertyStatus(const PropertyStatusFields& fields) -> std::vector<uint8_t>;
 
 // ---- Implementation ----
 
@@ -165,5 +230,20 @@ auto SerializeResponse(const T& value) -> std::vector<uint8_t>
     s.EndStruct();
     return s.ReleaseBuffer();
 }
+
+inline auto SerializePropertyStatus(const PropertyStatusFields& fields) -> std::vector<uint8_t>
+{
+    SilKit::Util::SerDes::Serializer s;
+    s.BeginStruct();
+    s.Serialize(fields.exists);
+    s.Serialize(fields.readable);
+    s.Serialize(fields.writable);
+    s.Serialize(fields.knownName);
+    s.Serialize(fields.valueType, 8);
+    s.Serialize(fields.queryFailed);
+    s.EndStruct();
+    return s.ReleaseBuffer();
+}
+
 
 } // namespace VhalSimpleApi

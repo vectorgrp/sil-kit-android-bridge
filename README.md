@@ -7,42 +7,22 @@ co-simulation between Android Automotive environments and CANoe/SIL Kit-based
 test benches.
 
 > [!WARNING]
-> **This is a public preview. We want your feedback.**
+> **Public preview - we want your feedback.**
 >
-> The [VhalSimple API](#the-vhalsimple-api) is complete for every type the bridge
-> models, versioned, and covered by tests, so it is something you can build
-> against. The project around it is early: it has not been hardened, security
-> reviewed, or run in production. While it is on `0.x`, the CLI, the property
-> model and the RPC surface may change without notice or a deprecation period. Do
-> not expose it to an untrusted network.
+> The [VhalSimple API](docs/vhal-simple-api.md) is complete for every type the
+> bridge models and covered by tests, so it is something you can build against.
+> The project around it is early: not hardened, not security reviewed, not run
+> in production. While it is on `0.x` the CLI and the RPC surface may change
+> without notice. Do not expose it to an untrusted network.
 >
-> We are publishing it early on purpose, because the useful next step is finding
-> out what people actually need from it. **Please
-> [open an issue](https://github.com/vectorgrp/sil-kit-android-bridge/issues)**:
+> Today it is **polling only** (no change notification), the CANoe surface is
+> **scalar get/set only** by design, and **no automated test drives a real
+> device** - hardware is validated by hand against Cuttlefish, so expect rough
+> edges there.
+>
+> **Please [open an issue](https://github.com/vectorgrp/sil-kit-android-bridge/issues)**:
 > bug reports, "this does not build on my machine", missing property types, and
-> use cases we have not thought of are all equally welcome. Tell us what you are
-> trying to do and we will tell you honestly whether it fits.
->
-> Known limitations today, so you can judge the fit before investing time:
->
-> - **Polling only.** The VHAL to SIL Kit *push* direction is not implemented.
->   `AddPropertyChangedHandler` returns `0` and does nothing, so a CANoe test has
->   to read values rather than being notified of changes.
-> - **The CANoe surface is deliberately small.** Scalar get/set only. That is a
->   scope decision, not a gap - see [Scope](#scope) for what is out and why.
-> - **Errors look like data on the wire.** An unknown property, a read the VHAL
->   refused, and a type mismatch all answer `0` with `RpcCallStatus::Success`,
->   because the VCDL methods carry no status out-parameter. From the response
->   alone a caller still cannot tell "battery at 0%" from "no such property". What
->   the wire cannot say, the bridge log now does: all three cases are logged, in
->   both the read and the write direction, and a non-OK VHAL `StatusCode` is no
->   longer converted into a plausible-looking number.
-> - **No automated test drives a real device.** CI covers the gRPC path against a
->   fake VHAL, including the error, health and result-handling paths and which
->   protobuf field each write lands in, and exercises the whole chain (SIL Kit ->
->   bridge -> gRPC -> VHAL) end to end. What it cannot do is run an Android image:
->   that part is validated by hand against Cuttlefish, most recently for the 0.4
->   release. Expect rough edges against real hardware, and please report them.
+> use cases we have not thought of are all equally welcome.
 
 ## The VhalSimple API
 
@@ -59,48 +39,17 @@ each call to the VHAL.
 | `string` | `string GetString(string name)` | `void SetString(string name, string value)` |
 | `bytes` | `bytes GetBytes(string name)` | `void SetBytes(string name, bytes value)` |
 
-plus `int32 GetApiVersion()`, which reports the contract version (currently `1`)
-so a CANoe configuration can check it speaks the same dialect. AOSP `BOOLEAN`
-properties travel over the `int32` methods as 0/1.
+Plus `int32 GetApiVersion()`, so a CANoe configuration can check it speaks the
+same dialect, and `GetPropertyStatus`, which answers a small struct saying
+whether a property exists, what access the VHAL declares, and which accessor to
+use.
 
 Properties are addressed by their AOSP name (`EV_BATTERY_LEVEL`,
-`RANGE_REMAINING`, ...); the name-to-id mapping is generated from AOSP's
-`VehicleProperty.aidl` into `source/VhalProperty.hpp`.
+`RANGE_REMAINING`, ...). AOSP `BOOLEAN` properties travel over the `int32`
+methods as 0/1.
 
-### Scope
-
-The API covers **every type the bridge models internally**. AOSP's `INT32_VEC`,
-`INT64_VEC`, `FLOAT_VEC` and `MIXED` properties are out of scope by design:
-`CarProperty` has no representation for them, so supporting them is a data-model
-change rather than a method addition. That is the line, and it is why the surface
-is called *simple* rather than *incomplete*.
-
-For the record, the CANoe side would not be the obstacle if we did add them - vCDL
-has `list<int32>` for a dynamic sequence and `array<uint8, N>` for a fixed one (a
-`typedef` is the attested way to use a sequence in return position). The blocker
-is `CarProperty::Value`. If you need vector properties, say so in an issue and
-that is the conversation to have.
-
-The API is also request/response only - there is no change notification. See the
-first bullet of the warning above.
-
-### The contract
-
-[source/VhalSimpleApi.hpp](source/VhalSimpleApi.hpp) and
-[examples/vector-canoe-se/VhalSimple.vcdl](examples/vector-canoe-se/VhalSimple.vcdl)
-are the two halves of one contract; the C++ header holds the identity constants,
-the method names and the wire format in one place, and everything else in the
-repository reads them from there.
-
-Each method is matched by SIL Kit on the **bare method name** plus three
-mandatory labels: `VirtualNetwork=Default`, `Namespace=VhalSimple`,
-`Instance=properties`. Those are the values `sil-adapter-builder` generates from
-the VCDL, so a CANoe participant built against it matches with no extra
-configuration. Override them with `--namespace`, `--instance` and
-`--virtual-network` to serve a different interface definition.
-
-A mismatch never fails loudly - SIL Kit simply does not pair client to server and
-every call returns `ServerNotReachable` - which is what `GetApiVersion` is for.
+Full reference, including the `GetPropertyStatus` struct and what is out of
+scope: **[docs/vhal-simple-api.md](docs/vhal-simple-api.md)**.
 
 ## Build
 
@@ -109,28 +58,21 @@ cmake --preset relwithdebinfo
 cmake --build --preset relwithdebinfo
 ```
 
-On Windows, run this from a Visual Studio developer command prompt (or after
-`vcvars64.bat`) so that the compiler and Ninja are on `PATH`. See
-[Prerequisites](#prerequisites) for what has to be installed first.
-
-Binaries are placed in `_build/<OS>/<preset>/`, e.g.
-`_build/Linux/relwithdebinfo/`. The presets are `debug`, `release` and
-`relwithdebinfo`; `debug` is Linux-only, for the reason given under
-[No debug preset on Windows](#no-debug-preset-on-windows).
+Binaries land in `_build/<OS>/<preset>/`, e.g. `_build/Linux/relwithdebinfo/`.
+The presets are `debug`, `release` and `relwithdebinfo`; `debug` is Linux-only.
+On Windows, build from a Visual Studio developer command prompt.
 
 The primary target platform is Ubuntu; the build depends only on publicly
-available packages. Windows is built and tested in CI as well.
+available packages. Windows is built and tested in CI as well. What has to be
+installed first is in [docs/building.md](docs/building.md).
 
 ## Quick start
 
 The fastest way to see the bridge work needs no Android device at all: `--mock`
-serves an in-memory VHAL seeded with one property per type - `INFO_MODEL_YEAR`
-(int32), `ANDROID_EPOCH_TIME` (int64), `EV_BATTERY_LEVEL` (float), `INFO_VIN`
-(string), `STORAGE_ENCRYPTION_BINDING_SEED` (bytes) and a dozen more. Each value
-is distinctive, so a wrong read looks wrong rather than looking like a plausible
-zero. Every property carries the type AOSP declares for it, so the mock behaves
-like a device: use the method family that matches. The full seed is listed in
-[examples/vector-canoe-se/README.md](examples/vector-canoe-se/README.md).
+serves an in-memory VHAL seeded with one property per type. Each value is
+distinctive, so a wrong read looks wrong rather than looking like a plausible
+zero, and every property carries the type AOSP declares for it, so the mock
+behaves like a device.
 
 ```sh
 # 1. Start a SIL Kit registry (from your SIL Kit installation)
@@ -153,17 +95,14 @@ No assignments on the command line; reading PROPERTY=value lines from stdin (Ctr
 EV_BATTERY_LEVEL=88.5
 SET  EV_BATTERY_LEVEL = 88.5 (float) -> Success
 GET  EV_BATTERY_LEVEL = 88.5 (float)
-ANDROID_EPOCH_TIME=1767225600000
-SET  ANDROID_EPOCH_TIME = 1767225600000 (int64) -> Success
-GET  ANDROID_EPOCH_TIME = 1767225600000 (int64)
 INFO_VIN=WVWZZZ1JZXW000001
 SET  INFO_VIN = 'WVWZZZ1JZXW000001' (string) -> Success
 GET  INFO_VIN = WVWZZZ1JZXW000001 (string)
 ```
 
 The method family is chosen from the AOSP property-id type bits, so a plain
-`NAME=value` line picks the right one. Byte properties are written and shown as
-hex.
+`NAME=value` line picks the right one. A bare `NAME` reads it, and `?NAME`
+reports its status. Byte properties are written and shown as hex.
 
 ### Against a real Android VHAL
 
@@ -220,9 +159,7 @@ ctest --preset relwithdebinfo --output-on-failure
 
 The suite is self-contained: it starts its own SIL Kit registry and its own fake
 VHAL, so it needs neither a running `sil-kit-registry` nor an Android device.
-What each target covers, how the test scaffolding fits together and what is
-knowingly left uncovered are documented for contributors in
-[AGENTS.md](AGENTS.md#testing).
+What each target covers is in [AGENTS.md](AGENTS.md#testing).
 
 ## Examples
 
@@ -231,166 +168,21 @@ Edition test configuration that exercises the bridge from a CANoe test bench,
 with its own [README](examples/vector-canoe-se/README.md). It needs commercial
 Vector tooling; everything else in this repository does not.
 
+## Documentation
+
+- [docs/vhal-simple-api.md](docs/vhal-simple-api.md) - the API in full: every
+  method, the `GetPropertyStatus` struct, scope, and the wire contract
+- [docs/building.md](docs/building.md) - prerequisites, Conan on Windows,
+  packaging and releasing
+- [AGENTS.md](AGENTS.md) - engineering rules and the test layout
+- [docs/](docs/) - index of the above
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the DCO sign-off requirement and the
 coding conventions, [AGENTS.md](AGENTS.md) for the engineering rules the codebase
 follows, and [SECURITY.md](SECURITY.md) for how to report a vulnerability
-privately. 
-
-## Prerequisites
-
-### Linux (Ubuntu)
-
-| Dependency | How to install |
-|------------|----------------|
-| **SIL Kit** | `sudo dpkg -i libsilkit5_<version>-1ubuntu1_amd64.deb libsilkit-dev_<version>-1ubuntu1_amd64.deb silkit-utils_<version>-1ubuntu1_amd64.deb` from [GitHub Releases](https://github.com/vectorgrp/sil-kit/releases) |
-| **gRPC + Protobuf** | `sudo apt install libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc` |
-| **GTest + GMock** | `sudo apt install libgtest-dev libgmock-dev` |
-| **CMake** | >= 3.21 |
-
-### Windows
-
-| Dependency | How to install |
-|------------|----------------|
-| **SIL Kit** | `SilKit-<version>.msi`, or unpack `SilKit-<version>-Win-x86_64-VS2019.zip` from [GitHub Releases](https://github.com/vectorgrp/sil-kit/releases) and pass `-DSilKit_DIR=<...>/lib/cmake/SilKit` |
-| **gRPC + Protobuf + GTest** | fetched automatically with Conan 2 (see below) |
-| **Visual Studio** | 2019 or newer, with the C++ toolset and Ninja |
-| **CMake** | >= 3.21 |
-| **uv** | [astral.sh/uv](https://docs.astral.sh/uv/) |
-
-On Windows the build provisions a Conan 2 client into a virtual environment at
-`_build/conan-venv/` using `uv`, and runs `conan install` during CMake configure.
-A Conan client that happens to be on `PATH` is deliberately not used: many
-machines have a system-wide Conan **1.x**, which cannot read this repository's
-Conan 2 `conanfile.py`. Conan 1 and Conan 2 share nothing (`~/.conan` plus
-`CONAN_USER_HOME` versus `~/.conan2` plus `CONAN_HOME`), so an existing Conan 1
-setup is left untouched.
-
-Both the client and the Conan package cache live under `_build/`, so a build
-creates no state anywhere else: nothing for two accounts on a shared machine to
-collide over, and `rm -rf _build` is a complete reset. The cost is that each
-worktree keeps its own package cache; point `CONAN_HOME_DIR` somewhere shared if
-you would rather trade that back.
-
-Relevant cache variables (see [cmake/fetch_conan.cmake](cmake/fetch_conan.cmake)):
-
-| Variable | Purpose |
-|----------|---------|
-| `GRPC_CONAN_REFERENCE` | gRPC reference, e.g. to use a different remote or channel. Defaults to `grpc/1.69.0` (ConanCenter carries 1.54.3, 1.69.0 and 1.83.0 only) |
-| `CONAN_PROFILE` | Conan 2 profile name for host and build. Empty uses `default`, created via `conan profile detect` |
-| `CONAN_SETTINGS` | extra `--settings key=value` arguments |
-| `CONAN_VENV_DIR` | location of the virtual environment (default `_build/conan-venv`) |
-| `CONAN_HOME_DIR` | Conan home for this project (default `_build/conan2`) |
-| `CONAN_EXECUTABLE` | use an existing Conan 2 client instead of provisioning one |
-| `SKAB_ALLOW_WINDOWS_DEBUG` | permit a Debug configure despite the source build it implies (see below) |
-
-The Conan home is scoped to this project so that an existing Conan installation
-is never touched, and so that the build can install its own compatibility plugin
-into it ([cmake/conan/compatibility.py](cmake/conan/compatibility.py)).
-
-That plugin is what keeps builds fast. ConanCenter publishes prebuilt Windows
-binaries for one configuration only - msvc 194, cppstd 14, Release, dynamic
-runtime - while Visual Studio 2026 detects as msvc 195. A Conan `package_id` is
-an exact-match cache key rather than a statement about ABI compatibility, so
-without help nothing matches and every dependency is compiled from source. The
-plugin declares the msvc `195 -> 194 -> 193` fallback, so the published binaries
-are reused. No extra flags are needed.
-
-Declaring `compiler.version=194` in the profile instead does **not** work: Conan
-derives `vcvars_ver` from `compiler.version`, so any package that still has to be
-built from source invokes `vcvarsall.bat -vcvars_ver=14.4` and fails on a machine
-that only has the 14.5 toolset installed.
-
-Do not pin `compiler.cppstd` either. abseil, protobuf, grpc and gtest all mark
-cppstd as ABI-relevant, so pinning it discards every prebuilt binary. The
-standard this project compiles with comes from `CMAKE_CXX_STANDARD` and has
-nothing to do with that setting.
-
-### No debug preset on Windows
-
-ConanCenter publishes exactly one Windows binary for `grpc/1.69.0` - `msvc 194,
-Release, dynamic` - and no Debug binary for any package in the graph. A Debug
-configure therefore compiles gRPC, Protobuf, abseil, OpenSSL, re2, c-ares and
-zlib from source, which takes about an hour and happens inside CMake's configure
-step, where it looks like a hang.
-
-So `debug` is a Linux-only preset. On Windows use `relwithdebinfo`: it carries
-full debug symbols, is what CI builds, and is the configuration these
-instructions assume. What it gives up against a true Debug build is `/Od` and
-the debug CRT's heap and iterator diagnostics.
-
-Configuring `Debug` without a preset - Visual Studio's CMake integration, or a
-hand-written `-DCMAKE_BUILD_TYPE=Debug` - stops with an error explaining the
-same thing. Pass `-DSKAB_ALLOW_WINDOWS_DEBUG=ON` if you genuinely need debug
-builds of the dependencies and accept the wait.
-
-## Packaging
-
-```sh
-cmake --preset relwithdebinfo
-cmake --build --preset relwithdebinfo --target package
-```
-
-This produces inside `_build/Linux/relwithdebinfo/`:
-- `sil-kit-android-bridge-<version>-Linux-x86_64.zip` - portable archive (`bin/sil-kit-android-bridge`)
-- `sil-kit-android-bridge-<version>-Linux-x86_64.deb` - Debian/Ubuntu package (`/usr/bin/sil-kit-android-bridge`)
-
-Install the `.deb` with:
-
-```sh
-sudo dpkg -i sil-kit-android-bridge-*.deb
-```
-
-On Windows a ZIP is produced instead, inside `_build/Windows/relwithdebinfo/`:
-`sil-kit-android-bridge-<version>-Windows-x86_64.zip`, containing
-`bin/sil-kit-android-bridge.exe`, `bin/silkit-client.exe` and `bin/SilKit.dll`.
-Unlike the Debian package, which resolves libsilkit through `dpkg-shlibdeps`,
-the archive is self-contained.
-
-gRPC, Protobuf, abseil, OpenSSL, re2, c-ares and zlib are linked **statically**,
-as is the vendored spdlog, so they need no DLLs beside the executable - `dumpbin
-/dependents` on the packaged binary lists only `SilKit.dll` and Windows system
-libraries. `SilKit.dll` is the one exception, because SIL Kit is distributed as
-a shared library with no static variant. The Microsoft C++ runtime
-(`MSVCP140.dll`, `VCRUNTIME140*.dll`) is expected from the system; the
-redistributable is not bundled.
-
-Because those libraries end up inside the executables, their license texts ship
-with them, under `share/doc/sil-kit-android-bridge/licenses/` - one directory
-per component, plus `NOTICES-conan.md` listing versions and SPDX identifiers for
-the Conan-resolved ones. Those are collected at configure time by
-[cmake/conan/licenses_deployer.py](cmake/conan/licenses_deployer.py); the
-vendored components (spdlog, fmt, the AOSP VHAL) and SIL Kit itself are installed
-by [cmake/Notices.cmake](cmake/Notices.cmake).
-
-## Releasing
-
-Maintainer procedure. The project version lives in
-[cmake/Version.cmake](cmake/Version.cmake) and nowhere else; CMake, Conan and CI
-all read it from there.
-
-1. Bump the triple in `cmake/Version.cmake` and merge to `main`.
-2. Tag that commit and push the tag - this is what starts a release:
-   ```sh
-   git tag -a vX.Y.Z -m "vX.Y.Z"
-   git push origin vX.Y.Z
-   ```
-3. CI checks the tag against `cmake/Version.cmake` (a mismatch fails in seconds,
-   before either platform builds), builds and tests Linux and Windows, then
-   creates a **draft** release with the archives attached.
-4. Review the generated notes on the draft and press Publish.
-
-Do not publish a release by hand before CI has attached the archives. If
-[immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
-are enabled, publishing seals the release: its assets can no longer be changed,
-and its tag name is reserved permanently - deleting the release does not give the
-name back, so the version has to be skipped.
-
-Creating the release in the UI is still handled - the job uploads to an existing
-draft or release rather than failing - but pushing the tag is the reliable
-trigger, since a draft against a tag that does not exist yet creates no tag and
-so starts no build.
+privately.
 
 ## License
 

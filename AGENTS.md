@@ -135,7 +135,7 @@ Keep the `set()` lines plain - the non-CMake readers use a regular expression.
 Releases are cut by pushing a `v*` tag; CI then leaves a draft release with the
 archives attached, for a human to publish. Never publish a release by hand
 before CI has attached them - under immutable releases that seals the release
-and burns the tag name for good. See the Releasing section in README.md.
+and burns the tag name for good. See the Releasing section in docs/building.md.
 
 ## building
 use cmake preset `debug` on Linux, `relwithdebinfo` on Windows. The `debug`
@@ -151,7 +151,7 @@ build writes nothing outside the repository; it carries
 `cmake/conan/compatibility.py`, which lets a newer MSVC reuse the msvc 194
 binaries ConanCenter publishes - do not pin `compiler.version` or
 `compiler.cppstd` in a profile to achieve that, both make things worse. See the
-Prerequisites section in README.md.
+Prerequisites section in docs/building.md.
 
 Dependencies are linked statically, so their license texts have to be
 redistributed: `cmake/conan/licenses_deployer.py` collects them from the Conan

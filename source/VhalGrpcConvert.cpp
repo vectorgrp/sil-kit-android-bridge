@@ -130,6 +130,42 @@ auto ToPropValue(int32_t propId, const CarProperty::Value& value) -> proto::Vehi
     return out;
 }
 
+// PropertyAccess restates these numbers so that IVhalClient.hpp stays
+// protobuf-free. This is the one translation unit that sees both, so it is the
+// only place the correspondence can be checked - and a silent divergence would
+// report readable properties as inaccessible.
+static_assert(static_cast<int32_t>(PropertyAccess::None) == proto::VehiclePropertyAccess::NONE, "");
+static_assert(static_cast<int32_t>(PropertyAccess::Read) == proto::VehiclePropertyAccess::READ, "");
+static_assert(static_cast<int32_t>(PropertyAccess::Write) == proto::VehiclePropertyAccess::WRITE, "");
+static_assert(static_cast<int32_t>(PropertyAccess::ReadWrite) == proto::VehiclePropertyAccess::READ_WRITE, "");
+
+auto ToPropertyInfo(const proto::VehiclePropConfig& config) -> PropertyInfo
+{
+    PropertyInfo info;
+    info.id = config.prop();
+    info.type = ToCarPropertyType(getPropertyType(config.prop()));
+
+    // The union of the top-level access and every per-area access. AOSP V3+
+    // lets a VHAL state access per area, and either field may be the only one
+    // populated - so unioning unconditionally is the rule, rather than reading
+    // the areas only when the top level is NONE. That special case also blocked
+    // widening: a top-level READ with an area declaring READ_WRITE reported
+    // not-writable, which is the opposite of the intended policy.
+    //
+    // Union, not intersection: this answers "can any part of this property be
+    // read or written", because the SimpleApi has no area parameter to narrow
+    // the question with. See the area caveat in README.md - the accessors all
+    // address area 0, so for a property whose areas exclude 0 this is broader
+    // than what a Get<Type> will actually manage.
+    auto access = static_cast<int32_t>(config.access());
+    for (const auto& area : config.area_configs())
+    {
+        access |= static_cast<int32_t>(area.access());
+    }
+    info.access = static_cast<PropertyAccess>(access & static_cast<int32_t>(PropertyAccess::ReadWrite));
+    return info;
+}
+
 auto FirstSetError(const proto::SetValueResults& results) -> std::optional<std::string>
 {
     for (const auto& result : results.results())

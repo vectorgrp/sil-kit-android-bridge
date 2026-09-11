@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "Print.hpp"
+#include "VhalProperty.hpp"
 
 struct CarProperty
 {
@@ -143,6 +144,88 @@ constexpr auto CarPropertyTypeNameOf() -> const char*
 
 using PropertyChangedHandler = std::function<void(const CarProperty&)>;
 
+// ---- Property configuration ----
+//
+// What a backend can say about a property without reading its value. This is
+// the model behind the VhalSimple GetPropertyStatus method, kept here in
+// backend terms rather than in that method's wire shape: IVhalClient describes
+// the VHAL, and it must not depend on the CANoe-facing contract.
+//
+// The enums restate the AOSP proto values numerically rather than including
+// them. That is deliberate and load-bearing - this header is protobuf-free, and
+// Test_VhalMockClient links neither proto_lib nor SilKit, which is what keeps a
+// failure at the mock layer attributable to the mock. VhalGrpcConvert.cpp is the
+// one translation unit that sees both, and static_asserts the correspondence.
+
+//! Mirrors android...vehicle.proto.VehiclePropertyAccess. A bitmask: READ_WRITE
+//! is READ | WRITE, which is why IsReadable/IsWritable test bits.
+enum class PropertyAccess : int32_t
+{
+    None = 0,
+    Read = 1,
+    Write = 2,
+    ReadWrite = 3,
+};
+
+//! Which CarProperty::Value arm a property uses, or None for a type VhalSimple
+//! cannot represent (AOSP's INT32_VEC, FLOAT_VEC, MIXED) or a name outside the
+//! AOSP table. Mirrors the variant arms, like CarPropertyTypeName above.
+enum class CarPropertyType : int32_t
+{
+    None = 0,
+    Int32 = 1, //!< also AOSP BOOLEAN, carried as 0/1
+    Int64 = 2,
+    Float = 3,
+    String = 4,
+    Bytes = 5,
+};
+
+//! The CarPropertyType an AOSP type maps to. One definition, used by both the
+//! mock and the gRPC client: they answer the same question, so a second copy is
+//! how --mock and a device would quietly start disagreeing about a property.
+//!
+//! VhalProperty.hpp is the compiled-in AOSP name/id/type table and is itself
+//! protobuf-free, so including it here does not break this header's rule.
+inline auto ToCarPropertyType(android::hardware::automotive::vehicle::VehiclePropertyType declared) -> CarPropertyType
+{
+    using T = android::hardware::automotive::vehicle::VehiclePropertyType;
+    switch (declared)
+    {
+    case T::BOOLEAN:
+    case T::INT32:
+        return CarPropertyType::Int32;
+    case T::INT64:
+        return CarPropertyType::Int64;
+    case T::FLOAT:
+        return CarPropertyType::Float;
+    case T::STRING:
+        return CarPropertyType::String;
+    case T::BYTES:
+        return CarPropertyType::Bytes;
+    default:
+        // Vector and MIXED types, and UNKNOWN for a name outside the table.
+        return CarPropertyType::None;
+    }
+}
+
+//! One entry of the VHAL's property configuration table.
+struct PropertyInfo
+{
+    int32_t id{0}; //!< the AOSP property id, or 0 for a name outside the table
+    PropertyAccess access{PropertyAccess::None};
+    CarPropertyType type{CarPropertyType::None};
+
+    auto IsReadable() const -> bool
+    {
+        return (static_cast<int32_t>(access) & static_cast<int32_t>(PropertyAccess::Read)) != 0;
+    }
+
+    auto IsWritable() const -> bool
+    {
+        return (static_cast<int32_t>(access) & static_cast<int32_t>(PropertyAccess::Write)) != 0;
+    }
+};
+
 class IVhalClient
 {
 public:
@@ -154,4 +237,13 @@ public:
     virtual auto RemovePropertyChangedHandler(int handlerId) -> void = 0;
     virtual auto GetAllProperties() -> std::vector<std::string> = 0;
     virtual bool CheckHealth() = 0;
+
+    //! The configuration entry for `name`, or nullopt when this backend does not
+    //! have that property.
+    //!
+    //! Throws when the configuration could not be read at all. A failure is not
+    //! an absence, and collapsing the two is how a transport outage would reach
+    //! a caller as "no such property" - the exact ambiguity the introspection
+    //! method exists to remove.
+    virtual auto GetPropertyInfo(std::string_view name) -> std::optional<PropertyInfo> = 0;
 };

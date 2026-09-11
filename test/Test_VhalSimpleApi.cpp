@@ -8,6 +8,7 @@
 // regression guard for the wire-format compatibility that previously broke CANoe
 // interop.
 #include <cstdint>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -59,6 +60,23 @@ TEST(VhalSimpleApiContract, MethodNamesAreBareAndTypeSuffixed)
     EXPECT_STREQ(Api::Method::kSetString, "SetString");
     EXPECT_STREQ(Api::Method::kGetBytes, "GetBytes");
     EXPECT_STREQ(Api::Method::kSetBytes, "SetBytes");
+    EXPECT_STREQ(Api::Method::kGetPropertyStatus, "GetPropertyStatus");
+}
+
+// ---- GetPropertyStatus ----
+//
+// The struct field order is the contract: CANoe decodes six bare bytes
+// positionally, so a reordering here is silently misread rather than rejected.
+
+TEST(VhalSimpleApiContract, PropertyStatusTypeCodesArePinnedForCanoe)
+{
+    using T = Api::TypeCode;
+    EXPECT_EQ(static_cast<int8_t>(T::None), 0);
+    EXPECT_EQ(static_cast<int8_t>(T::Int32), 1);
+    EXPECT_EQ(static_cast<int8_t>(T::Int64), 2);
+    EXPECT_EQ(static_cast<int8_t>(T::Float), 3);
+    EXPECT_EQ(static_cast<int8_t>(T::String), 4);
+    EXPECT_EQ(static_cast<int8_t>(T::Bytes), 5);
 }
 
 // ---- Request deserialization (adapter receives what CANoe sends) ----
@@ -199,6 +217,33 @@ TEST(VhalSimpleApiSerDes, Int32ResponseIsFourBytesLittleEndian)
     EXPECT_EQ(bytes[1], 0x00);
     EXPECT_EQ(bytes[2], 0x00);
     EXPECT_EQ(bytes[3], 0x00);
+}
+
+// The two vectors verified against CANoe DE: the bridge emitted exactly these
+// bytes and the generated consumer decoded them into the right struct fields.
+TEST(VhalSimpleApiSerDes, PropertyStatusIsSixBytesOnePerField)
+{
+    Api::PropertyStatusFields present;
+    present.exists = true;
+    present.readable = true;
+    present.writable = true;
+    present.knownName = true;
+    present.valueType = static_cast<int8_t>(Api::TypeCode::Float);
+    EXPECT_EQ(Api::SerializePropertyStatus(present), (std::vector<uint8_t>{1, 1, 1, 1, 3, 0}));
+
+    EXPECT_EQ(Api::SerializePropertyStatus(Api::PropertyStatusFields{}), (std::vector<uint8_t>{0, 0, 0, 0, 0, 0}));
+}
+
+TEST(VhalSimpleApiSerDes, PropertyStatusCarriesTheFailureFlagOutOfBand)
+{
+    Api::PropertyStatusFields failed;
+    failed.knownName = true;
+    failed.valueType = static_cast<int8_t>(Api::TypeCode::Float);
+    failed.queryFailed = true;
+
+    const auto bytes = Api::SerializePropertyStatus(failed);
+    EXPECT_EQ(bytes, (std::vector<uint8_t>{0, 0, 0, 1, 3, 1}));
+    EXPECT_NE(bytes, (std::vector<uint8_t>{0, 0, 0, 0, 0, 0})) << "a failure must not read as an unknown name";
 }
 
 TEST(VhalSimpleApiSerDes, Int64ResponseIsEightBytesLittleEndian)

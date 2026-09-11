@@ -146,6 +146,75 @@ TEST(VhalMockClient, GetPropertiesBatchMixesHitsAndMisses)
     EXPECT_FALSE(props[2].has_value());
 }
 
+// ---- GetPropertyInfo, which backs GetPropertyStatus ----
+//
+// The mock has no access model: everything it stores it will also hand back and
+// let you overwrite, so ReadWrite is the honest answer rather than the access
+// AOSP declares. Reporting INFO_VIN as read-only while still accepting the write
+// would make the introspection lie about the very backend it describes.
+
+TEST(VhalMockClient, GetPropertyInfoDescribesASeededProperty)
+{
+    auto client = MakeClient();
+
+    const auto info = client.GetPropertyInfo("EV_BATTERY_LEVEL");
+    ASSERT_TRUE(info.has_value());
+    EXPECT_NE(info->id, 0) << "EV_BATTERY_LEVEL is an AOSP name, so it must resolve";
+    EXPECT_EQ(info->type, CarPropertyType::Float);
+    EXPECT_TRUE(info->IsReadable());
+    EXPECT_TRUE(info->IsWritable());
+}
+
+// The type comes from the AOSP table, not from the stored variant, so it is the
+// same answer a real VHAL gives. This is what lets a consumer pick the right
+// Get<Type> instead of guessing and reading a silent zero.
+TEST(VhalMockClient, GetPropertyInfoReportsTheAospDeclaredType)
+{
+    auto client = MakeClient();
+
+    auto typeOf = [&](const char* name) {
+        const auto info = client.GetPropertyInfo(name);
+        return info.has_value() ? info->type : CarPropertyType::None;
+    };
+    EXPECT_EQ(typeOf("INFO_MODEL_YEAR"), CarPropertyType::Int32);
+    EXPECT_EQ(typeOf("EV_CHARGE_PORT_CONNECTED"), CarPropertyType::Int32) << "AOSP BOOLEAN travels as int32";
+    EXPECT_EQ(typeOf("ANDROID_EPOCH_TIME"), CarPropertyType::Int64);
+    EXPECT_EQ(typeOf("EV_BATTERY_LEVEL"), CarPropertyType::Float);
+    EXPECT_EQ(typeOf("INFO_VIN"), CarPropertyType::String);
+    EXPECT_EQ(typeOf("STORAGE_ENCRYPTION_BINDING_SEED"), CarPropertyType::Bytes);
+}
+
+// An AOSP name the mock does not seed. nullopt is "this backend does not have
+// it"; the adapter still reports the name as known, which is what separates a
+// typo from a property this vehicle does not implement.
+TEST(VhalMockClient, GetPropertyInfoIsNulloptForAnUnseededAospName)
+{
+    auto client = MakeClient();
+    EXPECT_FALSE(client.GetPropertyInfo("PERF_STEERING_ANGLE").has_value());
+}
+
+TEST(VhalMockClient, GetPropertyInfoIsNulloptForAnUnknownName)
+{
+    auto client = MakeClient();
+    EXPECT_FALSE(client.GetPropertyInfo("NOT_A_REAL_PROPERTY").has_value());
+}
+
+// A value stored under a non-AOSP name is real to the mock but unresolvable in
+// the AOSP table, so id is 0 and the type is unknown while the entry exists.
+// This is the case that proves "exists" and "is a known name" are independent.
+TEST(VhalMockClient, GetPropertyInfoForANonAospNameExistsWithNoId)
+{
+    auto client = MakeClient();
+    ASSERT_TRUE(client.SetProperty(CarProperty{"CABIN_TEMP", 21.5f}));
+
+    const auto info = client.GetPropertyInfo("CABIN_TEMP");
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->id, 0);
+    EXPECT_EQ(info->type, CarPropertyType::None);
+    EXPECT_TRUE(info->IsReadable());
+    EXPECT_TRUE(info->IsWritable());
+}
+
 TEST(VhalMockClient, PropertyChangedHandlerIsInvokedOnSimulatedChange)
 {
     auto client = MakeClient();

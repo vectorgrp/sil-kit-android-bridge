@@ -35,9 +35,20 @@
 // broken silently.
 //
 // No assertion may depend on how fast the machine is, so waiting is done on
-// logical conditions - WaitUntilConnected() and AwaitServerReachable() - and
-// Call() never retries. kWatchdog only bounds a hang; it is not a threshold any
+// logical conditions. kWatchdog only bounds a hang; it is not a threshold any
 // passing test approaches.
+//
+// RPC matching is per IRpcClient. SIL Kit publishes no event for it, and one
+// client being matched says nothing about another - so a barrier taken on one
+// client does not cover the rest, which is how a fixture that probed GetFloat
+// and then called GetPropertyStatus failed on a loaded CI runner with
+// ServerNotReachable.
+//
+// Call() therefore retries while the status is ServerNotReachable, which makes
+// every caller race-free by construction instead of by remembering to probe.
+// The retry cannot double-apply a side effect: ServerNotReachable means the
+// request was never delivered to a server. A test that wants to assert on
+// non-matching uses CallOnce().
 
 namespace test
 {
@@ -58,9 +69,8 @@ public:
     // Hang guard for a single call and for teardown. Far beyond any plausible
     // delay; a passing test never comes near it.
     static constexpr std::chrono::seconds kWatchdog{60};
-    // Per-attempt bound inside AwaitServerReachable. Shorter than kWatchdog so
-    // one stuck probe cannot consume the whole discovery budget and starve the
-    // retry loop.
+    // Per-attempt bound inside the matching retry. Shorter than kWatchdog so one
+    // stuck attempt cannot consume the whole discovery budget and starve the loop.
     static constexpr std::chrono::seconds kProbeWatchdog{5};
 
     SkParticipant(const std::string& name, const std::string& registryUri,
@@ -179,31 +189,46 @@ public:
                                      [&] { return connected_.count(participantName) != 0; });
     }
 
-    // Exactly one call, so the status a test sees is the one SIL Kit produced.
-    auto Call(SilKit::Services::Rpc::IRpcClient* client, SilKit::Util::Span<const uint8_t> request)
-        -> CallResult
-    {
-        return CallWithin(client, request, kWatchdog);
-    }
-
-    // Barrier for "matched to a server". SIL Kit has no event for RPC matching,
-    // so a successful call is the only proof; `request` is really executed.
-    // After the ctor/Start() split this should succeed on the first attempt; the
-    // loop remains as a safety net rather than as the mechanism.
-    auto AwaitServerReachable(SilKit::Services::Rpc::IRpcClient* client,
-                              SilKit::Util::Span<const uint8_t> request) -> CallResult
+    // Issues `request` once this client is matched to a server. Every other
+    // status - including one the bridge itself produced - is returned as is.
+    auto Call(SilKit::Services::Rpc::IRpcClient* client, SilKit::Util::Span<const uint8_t> request) -> CallResult
     {
         const auto giveUp = std::chrono::steady_clock::now() + kWatchdog;
         for (;;)
         {
             auto result = CallWithin(client, request, kProbeWatchdog);
-            if (result.status != SilKit::Services::Rpc::RpcCallStatus::ServerNotReachable
-                || std::chrono::steady_clock::now() >= giveUp)
+            if (result.status != SilKit::Services::Rpc::RpcCallStatus::ServerNotReachable)
             {
                 return result;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds{20});
+            if (std::chrono::steady_clock::now() >= giveUp)
+            {
+                result.harnessTimeout = true;
+                return result;
+            }
+            // Nothing to wait on: SIL Kit reports ServerNotReachable without
+            // dispatching, so there is no event this could block against. The
+            // interval only keeps the loop off a hot spin - correctness comes
+            // from the retry and the kWatchdog bound, not from its length.
+            std::this_thread::sleep_for(std::chrono::milliseconds{5});
         }
+    }
+
+    // Exactly one attempt, so the status a test sees is the one SIL Kit
+    // produced. For asserting that a client does NOT match; anything else wants
+    // Call().
+    auto CallOnce(SilKit::Services::Rpc::IRpcClient* client, SilKit::Util::Span<const uint8_t> request) -> CallResult
+    {
+        return CallWithin(client, request, kWatchdog);
+    }
+
+    // Reads as a barrier at the top of a fixture, so a discovery failure is
+    // reported there rather than as a puzzling status in the first assertion.
+    // Call() is self-barriering, so this is a diagnostic, not the mechanism.
+    auto AwaitServerReachable(SilKit::Services::Rpc::IRpcClient* client,
+                              SilKit::Util::Span<const uint8_t> request) -> CallResult
+    {
+        return Call(client, request);
     }
 
 private:

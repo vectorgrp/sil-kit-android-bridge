@@ -128,4 +128,30 @@ inline auto ParseBytes(const std::vector<uint8_t>& bytes) -> std::vector<uint8_t
     return d.Deserialize<std::vector<uint8_t>>();
 }
 
+//! The VhalPropertyStatus struct as CANoe decodes it: six bare bytes, one per
+//! field. Hand-written like everything else here, so it is an independent
+//! opinion about the layout rather than a mirror of the encoder.
+struct PropertyStatusView
+{
+    bool exists{false};
+    bool readable{false};
+    bool writable{false};
+    bool knownName{false};
+    int8_t valueType{0};
+    bool queryFailed{false};
+};
+
+inline auto ParsePropertyStatus(const std::vector<uint8_t>& bytes) -> PropertyStatusView
+{
+    SerDes::Deserializer d{bytes};
+    PropertyStatusView v;
+    v.exists = d.Deserialize<bool>();
+    v.readable = d.Deserialize<bool>();
+    v.writable = d.Deserialize<bool>();
+    v.knownName = d.Deserialize<bool>();
+    v.valueType = static_cast<int8_t>(d.Deserialize<int8_t>(8));
+    v.queryFailed = d.Deserialize<bool>();
+    return v;
+}
+
 } // namespace test

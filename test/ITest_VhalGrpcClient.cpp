@@ -348,4 +348,129 @@ TEST_F(GrpcClientTest, ConfigStreamTransportFailureThrows)
     EXPECT_THROW(client_->GetAllProperties(), VhalClientError);
 }
 
+// ---- Property configuration lookup, which backs GetPropertyStatus ----
+
+TEST_F(GrpcClientTest, GetPropertyInfoReportsTheConfiguredAccess)
+{
+    Server().SeedConfig(kFloatId, vhal::VehiclePropertyAccess::READ_WRITE);
+
+    const auto info = client_->GetPropertyInfo(kFloatName);
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->id, kFloatId);
+    EXPECT_EQ(info->type, CarPropertyType::Float);
+    EXPECT_TRUE(info->IsReadable());
+    EXPECT_TRUE(info->IsWritable());
+}
+
+// The access has to survive the whole stream, not just the conversion: a
+// read-only property reported as writable would send a caller into a SetFloat
+// that the VHAL will always refuse.
+TEST_F(GrpcClientTest, GetPropertyInfoReportsAReadOnlyPropertyAsNotWritable)
+{
+    Server().SeedConfig(kFloatId, vhal::VehiclePropertyAccess::READ);
+
+    const auto info = client_->GetPropertyInfo(kFloatName);
+    ASSERT_TRUE(info.has_value());
+    EXPECT_TRUE(info->IsReadable());
+    EXPECT_FALSE(info->IsWritable());
+}
+
+// A real VHAL configures properties it holds no current value for. The config
+// table, not the value table, is what decides whether a property exists.
+TEST_F(GrpcClientTest, GetPropertyInfoFindsAConfiguredPropertyWithNoValue)
+{
+    const auto id = VehicleProperty_GetIdByName("PERF_STEERING_ANGLE");
+    Server().SeedConfig(id, vhal::VehiclePropertyAccess::READ);
+
+    const auto info = client_->GetPropertyInfo("PERF_STEERING_ANGLE");
+    ASSERT_TRUE(info.has_value());
+    EXPECT_TRUE(info->IsReadable());
+}
+
+TEST_F(GrpcClientTest, GetPropertyInfoIsNulloptForAnUnconfiguredProperty)
+{
+    EXPECT_FALSE(client_->GetPropertyInfo("PERF_STEERING_ANGLE").has_value());
+}
+
+// An AOSP V3+ VHAL may state access per area and leave the top-level field at
+// NONE. End to end, because the fallback is only useful if the area configs
+// actually survive the stream.
+TEST_F(GrpcClientTest, GetPropertyInfoUsesPerAreaAccessWhenThatIsAllTheVhalStates)
+{
+    Server().SeedAreaConfig(kFloatId, 0, vhal::VehiclePropertyAccess::READ);
+
+    const auto info = client_->GetPropertyInfo(kFloatName);
+    ASSERT_TRUE(info.has_value());
+    EXPECT_TRUE(info->IsReadable());
+}
+
+// A vendor property: a real id the VHAL configures, with no entry in the
+// compiled-in AOSP table. VehicleProperty_GetNameById synthesises
+// "UNKNOWN_<id>" for it, so the client keys the table under a name that
+// VehicleProperty_GetIdByName cannot resolve. The id it reports is the VHAL's,
+// which is emphatically not 0 - anything deriving "is this a known AOSP name"
+// from PropertyInfo::id gets the wrong answer here, and only here.
+TEST_F(GrpcClientTest, GetPropertyInfoHandlesAVendorPropertyOutsideTheAospTable)
+{
+    // VENDOR group | INT32 | GLOBAL area, the encoding a vendor id uses.
+    constexpr int32_t kVendorId = 0x21400001;
+    ASSERT_EQ(VehicleProperty_GetIdByName(VehicleProperty_GetNameById(kVendorId)), 0)
+        << "fixture assumption: this id must not be in the AOSP table";
+
+    Server().SeedConfig(kVendorId, vhal::VehiclePropertyAccess::READ_WRITE);
+
+    const auto info = client_->GetPropertyInfo(VehicleProperty_GetNameById(kVendorId));
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->id, kVendorId);
+    EXPECT_TRUE(info->IsReadable());
+    EXPECT_EQ(info->type, CarPropertyType::Int32) << "a vendor id encodes its type in the same bits";
+}
+
+// The table is streamed once. Proved by ordering rather than by timing: the
+// first call establishes the cache, and only then is the transport broken. A
+// second call that still answers can only be answering from memory.
+TEST_F(GrpcClientTest, ThePropertyConfigTableIsStreamedOnlyOnce)
+{
+    Server().SeedConfig(kFloatId, vhal::VehiclePropertyAccess::READ_WRITE);
+    ASSERT_TRUE(client_->GetPropertyInfo(kFloatName).has_value());
+
+    Server().SetTransportStatus(grpc::StatusCode::UNAVAILABLE);
+
+    const auto info = client_->GetPropertyInfo(kFloatName);
+    ASSERT_TRUE(info.has_value()) << "a cached table must not need the server again";
+    EXPECT_TRUE(info->IsWritable());
+}
+
+// A failure is not an absence. If the failed read were cached as an empty
+// table, every later lookup would answer "no such property" - which is exactly
+// the ambiguity GetPropertyStatus exists to remove, reintroduced one layer down.
+TEST_F(GrpcClientTest, AFailedConfigReadIsRetriedRatherThanCachedAsAbsent)
+{
+    Server().SeedConfig(kFloatId, vhal::VehiclePropertyAccess::READ_WRITE);
+    Server().SetTransportStatus(grpc::StatusCode::UNAVAILABLE);
+
+    EXPECT_THROW(client_->GetPropertyInfo(kFloatName), VhalClientError);
+
+    Server().SetTransportStatus(grpc::StatusCode::OK);
+
+    const auto info = client_->GetPropertyInfo(kFloatName);
+    ASSERT_TRUE(info.has_value()) << "the failure must not have been remembered";
+    EXPECT_TRUE(info->IsReadable());
+}
+
+// Same rule for a stream that dies partway: a short table would report the
+// properties past the truncation point as absent forever.
+TEST_F(GrpcClientTest, ATruncatedConfigStreamIsNotCachedAsAShortTable)
+{
+    Server().SeedConfig(kFloatId, vhal::VehiclePropertyAccess::READ_WRITE);
+    Server().SetConfigStreamFailsAfter(1);
+
+    EXPECT_THROW(client_->GetPropertyInfo(kFloatName), VhalClientError);
+
+    Server().SetConfigStreamFailsAfter(-1);
+
+    EXPECT_TRUE(client_->GetPropertyInfo(kFloatName).has_value());
+    EXPECT_EQ(client_->GetAllProperties().size(), 5u) << "the whole table, not the truncated prefix";
+}
+
 } // namespace

@@ -96,9 +96,9 @@ auto VhalGrpcClient::AddPropertyChangedHandler(std::string_view, PropertyChanged
     return 0;
 }
 
-auto VhalGrpcClient::GetAllProperties() -> std::vector<std::string>
+auto VhalGrpcClient::LoadPropertyConfigs() -> std::map<std::string, PropertyInfo>
 {
-    std::vector<std::string> result;
+    std::map<std::string, PropertyInfo> loaded;
 
     google::protobuf::Empty request;
     grpc::ClientContext context;
@@ -109,7 +109,7 @@ auto VhalGrpcClient::GetAllProperties() -> std::vector<std::string>
     VehiclePropConfig config;
     while (reader->Read(&config))
     {
-        result.emplace_back(VehicleProperty_GetNameById(config.prop()));
+        loaded.emplace(VehicleProperty_GetNameById(config.prop()), VhalConvert::ToPropertyInfo(config));
     }
     // A stream that dies partway leaves a short list indistinguishable from a
     // complete one unless the final status is checked.
@@ -118,7 +118,50 @@ auto VhalGrpcClient::GetAllProperties() -> std::vector<std::string>
     {
         throw VhalClientError("GetAllPropertyConfig failed: " + status.error_message());
     }
+    return loaded;
+}
+
+void VhalGrpcClient::EnsureConfigCache()
+{
+    if (configLoaded_)
+    {
+        return;
+    }
+    // Completed into a local before anything is committed, so a truncated
+    // stream cannot leave a half-populated cache behind. configLoaded_ is set
+    // only on success: a failure is retried by the next call rather than
+    // remembered as an empty table, which would answer "no such property"
+    // forever after one transport blip.
+    auto loaded = LoadPropertyConfigs();
+    configByName_ = std::move(loaded);
+    configLoaded_ = true;
+}
+
+auto VhalGrpcClient::GetAllProperties() -> std::vector<std::string>
+{
+    std::lock_guard<std::mutex> lock{configMutex_};
+    EnsureConfigCache();
+
+    std::vector<std::string> result;
+    result.reserve(configByName_.size());
+    for (const auto& [name, info] : configByName_)
+    {
+        result.push_back(name);
+    }
     return result;
+}
+
+auto VhalGrpcClient::GetPropertyInfo(std::string_view name) -> std::optional<PropertyInfo>
+{
+    std::lock_guard<std::mutex> lock{configMutex_};
+    EnsureConfigCache();
+
+    auto it = configByName_.find(std::string(name));
+    if (it == configByName_.end())
+    {
+        return std::nullopt;
+    }
+    return it->second;
 }
 
 bool VhalGrpcClient::CheckHealth()

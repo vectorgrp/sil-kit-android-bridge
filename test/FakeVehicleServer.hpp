@@ -88,6 +88,17 @@ public:
     //! Abort the GetAllPropertyConfig stream after n configs. Negative: never.
     void SetConfigStreamFailsAfter(int n);
 
+    //! Declare a property in the configuration table with an explicit access and
+    //! change mode. Independent of the Seed* methods on purpose: a real VHAL
+    //! configures properties it has no current value for, and the config table -
+    //! not the value table - is what GetPropertyStatus answers from.
+    void SeedConfig(int32_t propId, vhal::VehiclePropertyAccess access,
+                    vhal::VehiclePropertyChangeMode changeMode = vhal::VehiclePropertyChangeMode::ON_CHANGE);
+
+    //! Declare a property whose access is stated per area only, with the
+    //! top-level access left at NONE - as an AOSP V3+ VHAL may report it.
+    void SeedAreaConfig(int32_t propId, int32_t areaId, vhal::VehiclePropertyAccess access);
+
     // ---- Observation ----
 
     //! Every SetValues request received, in arrival order. This is how a test
@@ -115,6 +126,7 @@ private:
     std::map<int32_t, vhal::VehiclePropValue> values_;
     std::map<int32_t, vhal::StatusCode> readStatus_;
     std::map<int32_t, vhal::StatusCode> writeStatus_;
+    std::map<int32_t, vhal::VehiclePropConfig> configs_;
     std::vector<vhal::VehiclePropValueRequests> setRequests_;
     grpc::StatusCode transportStatus_{grpc::StatusCode::OK};
     ResultOrder order_{ResultOrder::AsRequested};
@@ -231,6 +243,30 @@ inline void FakeVehicleServer::SetConfigStreamFailsAfter(int n)
 {
     std::lock_guard<std::mutex> lock{mutex_};
     configStreamFailsAfter_ = n;
+}
+
+inline void FakeVehicleServer::SeedConfig(int32_t propId, vhal::VehiclePropertyAccess access,
+                                          vhal::VehiclePropertyChangeMode changeMode)
+{
+    std::lock_guard<std::mutex> lock{mutex_};
+    auto& config = configs_[propId];
+    config.set_prop(propId);
+    config.set_access(access);
+    config.set_change_mode(changeMode);
+}
+
+inline void FakeVehicleServer::SeedAreaConfig(int32_t propId, int32_t areaId, vhal::VehiclePropertyAccess access)
+{
+    std::lock_guard<std::mutex> lock{mutex_};
+    auto& config = configs_[propId];
+    config.set_prop(propId);
+    // Left at NONE deliberately: this models the AOSP V3+ VHAL that states
+    // access per area only, which a client reading just the top-level field
+    // would report as inaccessible.
+    config.set_access(vhal::VehiclePropertyAccess::NONE);
+    auto* area = config.add_area_configs();
+    area->set_area_id(areaId);
+    area->set_access(access);
 }
 
 inline auto FakeVehicleServer::ReceivedSetRequests() const -> std::vector<vhal::VehiclePropValueRequests>
@@ -365,8 +401,32 @@ inline auto FakeVehicleServer::GetAllPropertyConfig(grpc::ServerContext*, const 
         return grpc::Status{transportStatus_, "FakeVehicleServer: GetAllPropertyConfig refused"};
     }
 
-    int written = 0;
+    // The table is the union of the seeded values and the explicitly seeded
+    // configs: a real VHAL configures properties it holds no value for, and a
+    // value with no explicit config is still a configured property. Built into
+    // one ordered vector first so that the truncation point below is
+    // deterministic rather than depending on how two maps interleave.
+    std::vector<vhal::VehiclePropConfig> table;
     for (const auto& entry : values_)
+    {
+        if (configs_.find(entry.first) != configs_.end())
+        {
+            continue; // the explicit config wins
+        }
+        // No access stated, so NONE - which decodes as neither readable nor
+        // writable. That is the literal reading, and leaving it alone is what
+        // makes "call SeedConfig if you want access bits" obvious in a test.
+        vhal::VehiclePropConfig config;
+        config.set_prop(entry.first);
+        table.push_back(std::move(config));
+    }
+    for (const auto& entry : configs_)
+    {
+        table.push_back(entry.second);
+    }
+
+    int written = 0;
+    for (const auto& config : table)
     {
         if (configStreamFailsAfter_ >= 0 && written >= configStreamFailsAfter_)
         {
@@ -375,8 +435,6 @@ inline auto FakeVehicleServer::GetAllPropertyConfig(grpc::ServerContext*, const 
             // cannot tell it from a complete one.
             return grpc::Status{grpc::StatusCode::UNAVAILABLE, "FakeVehicleServer: config stream aborted"};
         }
-        vhal::VehiclePropConfig config;
-        config.set_prop(entry.first);
         writer->Write(config);
         ++written;
     }

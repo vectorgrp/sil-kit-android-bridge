@@ -12,6 +12,25 @@ import module "SilKit";
 
 namespace VhalSimple
 {
+  // Mirrors VhalSimpleApi::PropertyStatusFields in source/VhalSimpleApi.hpp;
+  // the field order is the wire format, so keep the two in step.
+  //
+  // valueType: 0 none, 1 int32, 2 int64, 3 float, 4 string, 5 bytes.
+  // knownName is independent of exists: a real AOSP name this vehicle does not
+  // implement answers knownName without exists, which is what separates a
+  // missing feature from a typo.
+  // queryFailed means the bridge could not answer at all; the other fields then
+  // hold only what it could determine without the VHAL.
+  struct VhalPropertyStatus
+  {
+    bool exists;
+    bool readable;
+    bool writable;
+    bool knownName;
+    int8 valueType;
+    bool queryFailed;
+  }
+
   [Binding="SilKit"]
   interface IVhalSimple
   {
@@ -35,6 +54,11 @@ namespace VhalSimple
     // 'bytes' is a vCDL primitive sequence type; there is no [] suffix form.
     consumed method bytes GetBytes(string name);
     consumed method void  SetBytes(string name, bytes value);
+
+    // What the bridge knows about a property, without reading its value: the
+    // only way to tell "the value is 0" from "there is no such property",
+    // since every Get<Type> answers both with 0.
+    consumed method void GetPropertyStatus(in string name, out VhalPropertyStatus status);
   }
 
   IVhalSimple properties;
