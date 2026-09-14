@@ -9,7 +9,7 @@
 #
 # The Conan client on PATH is deliberately NOT used. Corporate machines commonly
 # have a system-wide Conan 1.x installation, which cannot read the Conan 2
-# conanfile.py in this repository. Bootstrapping into ${CONAN_VENV_DIR} keeps the
+# conanfile.py in this repository. Bootstrapping into ${SKAB_CONAN_VENV_DIR} keeps the
 # build self-contained and leaves an existing Conan 1 setup untouched: Conan 1
 # uses ~/.conan and CONAN_USER_HOME, Conan 2 uses ~/.conan2 and CONAN_HOME, and
 # the two share nothing.
@@ -18,18 +18,20 @@
 # state outside its own tree: no per-user directory to collide over on a shared
 # machine, and `rm -rf _build` is a complete reset.
 #
-# Intended to be included by cmake/gRPC.cmake on Windows only.
+# Intended to be included by cmake/gRPC.cmake on both platforms, unless
+# SKAB_STATIC_DEPS is OFF or a CMAKE_TOOLCHAIN_FILE was supplied.
 #
 # Cache variables:
-#   GRPC_CONAN_REFERENCE - full Conan reference for gRPC, e.g. to select an
+#   SKAB_GRPC_CONAN_REFERENCE - full Conan reference for gRPC, e.g. to select an
 #                          internal Artifactory channel instead of ConanCenter.
-#   CONAN_PROFILE        - Conan 2 profile name for the host and build context.
+#   SKAB_CONAN_PROFILE        - Conan 2 profile name for the host and build context.
 #                          Empty uses the 'default' profile, which is created by
 #                          `conan profile detect` if it does not exist yet.
-#   CONAN_VENV_DIR       - location of the uv virtual environment.
-#   CONAN_HOME_DIR       - Conan home (package cache + extensions) for this project.
-#   CONAN_EXECUTABLE     - skip the bootstrap and use this client instead.
-#   CONAN_SETTINGS       - extra `--settings key=value` arguments.
+#   SKAB_CONAN_VENV_DIR       - location of the uv virtual environment.
+#   SKAB_CONAN_HOME_DIR       - Conan home (package cache + extensions) for this project.
+#   SKAB_CONAN_EXECUTABLE     - skip the bootstrap and use this client instead.
+#   SKAB_CONAN_SETTINGS       - extra `--settings key=value` arguments.
+#   SKAB_CONAN_BUILD_POLICY  - --build policy; 'never' fails instead of building
 #   SKAB_ALLOW_WINDOWS_DEBUG - allow a Debug configure despite the hour-long source
 #                          build it implies (see the guard in fetch_conan()).
 #
@@ -55,32 +57,40 @@
 # These are best set from a local (git-ignored) CMakeUserPresets.json:
 #
 #   "cacheVariables": {
-#     "GRPC_CONAN_REFERENCE": "grpc/1.69.0@user/channel",
-#     "CONAN_PROFILE": "your-conan2-profile-name"
+#     "SKAB_GRPC_CONAN_REFERENCE": "grpc/1.69.0@user/channel",
+#     "SKAB_CONAN_PROFILE": "your-conan2-profile-name"
 #   }
 
-set(GRPC_CONAN_REFERENCE "grpc/1.69.0" CACHE STRING
+set(SKAB_GRPC_CONAN_REFERENCE "grpc/1.69.0" CACHE STRING
     "Full Conan reference for the gRPC package (e.g. grpc/1.69.0@user/channel)")
-set(CONAN_PROFILE "" CACHE STRING
+set(SKAB_CONAN_PROFILE "" CACHE STRING
     "Conan 2 profile for host/build (empty uses Conan's 'default' profile)")
-set(CONAN_VENV_DIR "${CMAKE_SOURCE_DIR}/_build/conan-venv" CACHE PATH
+# Scoped by host system: uv refuses to reuse a venv directory, so a worktree
+# built on both Windows and Linux would otherwise fight over one.
+set(SKAB_CONAN_VENV_DIR "${CMAKE_SOURCE_DIR}/_build/${CMAKE_HOST_SYSTEM_NAME}/conan-venv" CACHE PATH
     "Virtual environment directory holding the Conan 2 client")
 # A Conan home owned by this project: it carries the compatibility plugin below,
 # and keeping it out of ~/.conan2 means an existing Conan setup is never touched.
 #
 # Deliberately ${CMAKE_SOURCE_DIR}/_build/... rather than ${CMAKE_BINARY_DIR}/...:
 # the presets place binary dirs at _build/<OS>/<preset>/, so this is one cache
-# beside them that every configuration shares. A per-preset home would download
-# the whole dependency set once per build type. Point this elsewhere to share one
-# cache across worktrees, at the price of writing outside the source tree.
-set(CONAN_HOME_DIR "${CMAKE_SOURCE_DIR}/_build/conan2" CACHE PATH
+# beside them that every configuration of that host shares. A per-preset home
+# would download the whole dependency set once per build type.
+#
+# Scoped by host system as well: the home holds Conan's detected `default`
+# profile, which names the host compiler, so sharing one makes a WSL configure
+# resolve the Windows graph.
+set(SKAB_CONAN_HOME_DIR "${CMAKE_SOURCE_DIR}/_build/${CMAKE_HOST_SYSTEM_NAME}/conan2" CACHE PATH
     "Conan 2 home (package cache and extensions) owned by this project")
-set(CONAN_EXECUTABLE "" CACHE FILEPATH
-    "Conan 2 executable (empty: provision one in CONAN_VENV_DIR using uv)")
-set(CONAN_REQUIREMENT "conan>=2.0,<3" CACHE STRING
-    "Requirement specifier used when installing Conan into CONAN_VENV_DIR")
-set(CONAN_SETTINGS "" CACHE STRING
+set(SKAB_CONAN_EXECUTABLE "" CACHE FILEPATH
+    "Conan 2 executable (empty: provision one in SKAB_CONAN_VENV_DIR using uv)")
+set(SKAB_CONAN_REQUIREMENT "conan>=2.0,<3" CACHE STRING
+    "Requirement specifier used when installing Conan into SKAB_CONAN_VENV_DIR")
+set(SKAB_CONAN_SETTINGS "" CACHE STRING
     "Extra Conan settings as a list of key=value (e.g. compiler.version=194)")
+set(SKAB_CONAN_BUILD_POLICY "missing" CACHE STRING
+    "Conan --build policy. 'never' turns a cache miss into an immediate error instead of an hour-long source build, which is what CI wants: a drift in ConanCenter's published binaries is then reported rather than absorbed.")
+
 option(SKAB_ALLOW_WINDOWS_DEBUG
     "Permit a Debug configure on Windows, compiling every dependency from source" OFF)
 
@@ -92,7 +102,7 @@ set(_SKAB_FETCH_CONAN_DIR "${CMAKE_CURRENT_LIST_DIR}")
 # executable cannot be run.
 function(_skab_conan_version conan_exe out_var)
     execute_process(
-        COMMAND ${CMAKE_COMMAND} -E env "CONAN_HOME=${CONAN_HOME_DIR}" "${conan_exe}" --version
+        COMMAND ${CMAKE_COMMAND} -E env "CONAN_HOME=${SKAB_CONAN_HOME_DIR}" "${conan_exe}" --version
         OUTPUT_VARIABLE _out
         ERROR_VARIABLE _err
         RESULT_VARIABLE _res
@@ -107,19 +117,19 @@ function(_skab_conan_version conan_exe out_var)
     set(${out_var} "${_ver}" PARENT_SCOPE)
 endfunction()
 
-# Creates ${CONAN_VENV_DIR} with uv and installs Conan 2 into it, unless a client
+# Creates ${SKAB_CONAN_VENV_DIR} with uv and installs Conan 2 into it, unless a client
 # is already present. Sets out_var to the conan executable.
 function(_skab_provision_conan out_var)
-    if(CONAN_EXECUTABLE)
-        set(${out_var} "${CONAN_EXECUTABLE}" PARENT_SCOPE)
+    if(SKAB_CONAN_EXECUTABLE)
+        set(${out_var} "${SKAB_CONAN_EXECUTABLE}" PARENT_SCOPE)
         return()
     endif()
 
     if(WIN32)
-        set(_venv_bin "${CONAN_VENV_DIR}/Scripts")
+        set(_venv_bin "${SKAB_CONAN_VENV_DIR}/Scripts")
         set(_exe_suffix ".exe")
     else()
-        set(_venv_bin "${CONAN_VENV_DIR}/bin")
+        set(_venv_bin "${SKAB_CONAN_VENV_DIR}/bin")
         set(_exe_suffix "")
     endif()
     set(_conan_exe "${_venv_bin}/conan${_exe_suffix}")
@@ -130,28 +140,29 @@ function(_skab_provision_conan out_var)
         if(NOT UV_EXECUTABLE)
             message(FATAL_ERROR
                 "uv was not found on PATH. It is used to provision a Conan 2 client into "
-                "'${CONAN_VENV_DIR}'. Install uv (https://docs.astral.sh/uv/), or point "
+                "'${SKAB_CONAN_VENV_DIR}'. Install uv (https://docs.astral.sh/uv/), or point "
                 "-DCONAN_EXECUTABLE=<path> at an existing Conan 2 client.")
         endif()
 
         if(NOT EXISTS "${_venv_python}")
-            message(STATUS "Conan: creating virtual environment '${CONAN_VENV_DIR}' (uv)")
+            message(STATUS "Conan: creating virtual environment '${SKAB_CONAN_VENV_DIR}' (uv)")
+            # The interpreter is missing, so replace a stale venv rather than fail.
             execute_process(
-                COMMAND "${UV_EXECUTABLE}" venv "${CONAN_VENV_DIR}"
+                COMMAND "${UV_EXECUTABLE}" venv --clear "${SKAB_CONAN_VENV_DIR}"
                 RESULT_VARIABLE _res
             )
             if(NOT _res EQUAL 0)
-                message(FATAL_ERROR "uv venv '${CONAN_VENV_DIR}' failed (exit ${_res}).")
+                message(FATAL_ERROR "uv venv '${SKAB_CONAN_VENV_DIR}' failed (exit ${_res}).")
             endif()
         endif()
 
-        message(STATUS "Conan: installing '${CONAN_REQUIREMENT}' into '${CONAN_VENV_DIR}' (uv)")
+        message(STATUS "Conan: installing '${SKAB_CONAN_REQUIREMENT}' into '${SKAB_CONAN_VENV_DIR}' (uv)")
         execute_process(
-            COMMAND "${UV_EXECUTABLE}" pip install --python "${_venv_python}" "${CONAN_REQUIREMENT}"
+            COMMAND "${UV_EXECUTABLE}" pip install --python "${_venv_python}" "${SKAB_CONAN_REQUIREMENT}"
             RESULT_VARIABLE _res
         )
         if(NOT _res EQUAL 0)
-            message(FATAL_ERROR "uv pip install '${CONAN_REQUIREMENT}' failed (exit ${_res}).")
+            message(FATAL_ERROR "uv pip install '${SKAB_CONAN_REQUIREMENT}' failed (exit ${_res}).")
         endif()
     endif()
 
@@ -162,10 +173,10 @@ function(_skab_provision_conan out_var)
 endfunction()
 
 # Creates the 'default' profile when the client does not have one yet. Only
-# called when CONAN_PROFILE is empty.
+# called when SKAB_CONAN_PROFILE is empty.
 function(_skab_ensure_default_profile conan_exe)
     execute_process(
-        COMMAND ${CMAKE_COMMAND} -E env "CONAN_HOME=${CONAN_HOME_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E env "CONAN_HOME=${SKAB_CONAN_HOME_DIR}"
             "${conan_exe}" profile path default
         RESULT_VARIABLE _res
         OUTPUT_QUIET
@@ -176,7 +187,7 @@ function(_skab_ensure_default_profile conan_exe)
     endif()
     message(STATUS "Conan: no 'default' profile, running 'conan profile detect'")
     execute_process(
-        COMMAND ${CMAKE_COMMAND} -E env "CONAN_HOME=${CONAN_HOME_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E env "CONAN_HOME=${SKAB_CONAN_HOME_DIR}"
             "${conan_exe}" profile detect
         RESULT_VARIABLE _res
     )
@@ -193,7 +204,7 @@ endfunction()
 function(_skab_install_compatibility_plugin)
     configure_file(
         "${_SKAB_FETCH_CONAN_DIR}/conan/compatibility.py"
-        "${CONAN_HOME_DIR}/extensions/plugins/compatibility/compatibility.py"
+        "${SKAB_CONAN_HOME_DIR}/extensions/plugins/compatibility/compatibility.py"
         COPYONLY
     )
 endfunction()
@@ -207,6 +218,12 @@ endfunction()
 # other entry points (Visual Studio's CMake integration, a hand-written
 # -DCMAKE_BUILD_TYPE=Debug).
 function(_skab_check_build_type)
+    # Windows only: a Debug build there links /MDd and cannot use the published
+    # /MD packages, so it would have to compile the graph. Linux has no such
+    # split and links the Release packages instead.
+    if(NOT WIN32)
+        return()
+    endif()
     if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR SKAB_ALLOW_WINDOWS_DEBUG)
         return()
     endif()
@@ -222,7 +239,7 @@ endfunction()
 # CMAKE_PREFIX_PATH in the caller's scope.
 function(fetch_conan)
     _skab_check_build_type()
-    message(STATUS "Conan: home '${CONAN_HOME_DIR}'")
+    message(STATUS "Conan: home '${SKAB_CONAN_HOME_DIR}'")
     _skab_install_compatibility_plugin()
     _skab_provision_conan(_conan_exe)
 
@@ -233,37 +250,46 @@ function(fetch_conan)
     if(_conan_version VERSION_LESS 2.0)
         message(FATAL_ERROR
             "Conan ${_conan_version} ('${_conan_exe}') is too old: this project uses a Conan 2 "
-            "conanfile.py. Clear CONAN_EXECUTABLE to let uv provision a Conan 2 client into "
-            "'${CONAN_VENV_DIR}'.")
+            "conanfile.py. Clear SKAB_CONAN_EXECUTABLE to let uv provision a Conan 2 client into "
+            "'${SKAB_CONAN_VENV_DIR}'.")
     endif()
 
-    if(CONAN_PROFILE)
+    if(SKAB_CONAN_PROFILE)
         # A profile carries the compiler/runtime/build_type settings itself.
         set(_settings_args)
         set(_profile_args
-            --profile:host=${CONAN_PROFILE}
-            --profile:build=${CONAN_PROFILE})
-        message(STATUS "Conan ${_conan_version}: install with profile '${CONAN_PROFILE}' (${GRPC_CONAN_REFERENCE})")
+            --profile:host=${SKAB_CONAN_PROFILE}
+            --profile:build=${SKAB_CONAN_PROFILE})
+        message(STATUS "Conan ${_conan_version}: install with profile '${SKAB_CONAN_PROFILE}' (${SKAB_GRPC_CONAN_REFERENCE})")
     else()
         _skab_ensure_default_profile("${_conan_exe}")
         # No profile given: use the default profile and pin the settings that have
         # to match this build. Release for every configuration - it is the only
         # build type ConanCenter publishes, RelWithDebInfo and Release both compile
         # /MD, and Debug is refused above unless SKAB_ALLOW_WINDOWS_DEBUG is set.
-        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND SKAB_ALLOW_WINDOWS_DEBUG)
             set(_build_type "Debug")
             message(WARNING
                 "Conan: resolving Debug dependencies. Nothing is published for that "
                 "configuration, so every package is about to be compiled from source.")
         else()
             set(_build_type "Release")
+            if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+                # No Debug binaries are published for this graph on any platform
+                # (checked 2026-09-14), so asking for them builds all of them.
+                # The two then disagree about NDEBUG; -DSKAB_STATIC_DEPS=OFF if
+                # that matters.
+                message(STATUS
+                    "Conan: CMAKE_BUILD_TYPE=Debug, resolving Release dependencies. "
+                    "ConanCenter publishes no Debug binaries for this graph.")
+            endif()
         endif()
         set(_settings_args --settings build_type=${_build_type})
         set(_profile_args)
-        message(STATUS "Conan ${_conan_version}: install with default profile, build_type=${_build_type} (${GRPC_CONAN_REFERENCE})")
+        message(STATUS "Conan ${_conan_version}: install with default profile, build_type=${_build_type} (${SKAB_GRPC_CONAN_REFERENCE})")
     endif()
 
-    foreach(_setting IN LISTS CONAN_SETTINGS)
+    foreach(_setting IN LISTS SKAB_CONAN_SETTINGS)
         list(APPEND _settings_args --settings ${_setting})
     endforeach()
 
@@ -280,12 +306,12 @@ function(fetch_conan)
     # with no matching prebuilt binaries, and silence there reads as a hang.
     execute_process(
         COMMAND ${CMAKE_COMMAND} -E env
-            "CONAN_HOME=${CONAN_HOME_DIR}"
-            "GRPC_CONAN_REFERENCE=${GRPC_CONAN_REFERENCE}"
+            "CONAN_HOME=${SKAB_CONAN_HOME_DIR}"
+            "SKAB_GRPC_CONAN_REFERENCE=${SKAB_GRPC_CONAN_REFERENCE}"
             "SKAB_CMAKE_CONFIGURATION=${CMAKE_BUILD_TYPE}"
             "${_conan_exe}" install "${CMAKE_SOURCE_DIR}"
             --output-folder "${_generators_dir}"
-            --build=missing
+            --build=${SKAB_CONAN_BUILD_POLICY}
             --deployer "${_SKAB_FETCH_CONAN_DIR}/conan/licenses_deployer.py"
             --deployer-folder "${SKAB_CONAN_LICENSE_DIR}"
             ${_profile_args}
@@ -296,7 +322,7 @@ function(fetch_conan)
     )
     if(NOT _res EQUAL 0)
         message(FATAL_ERROR "conan install failed (exit ${_res}). "
-            "Set GRPC_CONAN_REFERENCE / CONAN_PROFILE (e.g. via CMakeUserPresets.json) "
+            "Set SKAB_GRPC_CONAN_REFERENCE / SKAB_CONAN_PROFILE (e.g. via CMakeUserPresets.json) "
             "to point at a Conan remote that provides the gRPC package.")
     endif()
 

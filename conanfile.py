@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Vector Informatik GmbH
 # SPDX-License-Identifier: MIT
 #
-# Conan 2 consumer recipe. Only used on Windows; see cmake/fetch_conan.cmake,
+# Conan 2 consumer recipe, used on both platforms when SKAB_STATIC_DEPS is ON
+# (the default); see cmake/fetch_conan.cmake,
 # which provisions the Conan 2 client into a uv virtual environment and runs
 # `conan install` at CMake configure time.
 #
@@ -63,12 +64,12 @@ class SilKitAndroidBridge(ConanFile):
     default_options = {"*:shared": False}
 
     # The gRPC reference is overridable so a specific Conan channel / mirror can be
-    # selected without hardcoding it here. Set GRPC_CONAN_REFERENCE in the environment
-    # (cmake/fetch_conan.cmake forwards it from the GRPC_CONAN_REFERENCE cache variable,
+    # selected without hardcoding it here. Set SKAB_GRPC_CONAN_REFERENCE in the environment
+    # (cmake/fetch_conan.cmake forwards it from the SKAB_GRPC_CONAN_REFERENCE cache variable,
     # which you can set in a local CMakeUserPresets.json). Defaults to the ConanCenter
     # reference; ConanCenter carries 1.54.3, 1.69.0 and 1.83.0 only.
     def requirements(self):
-        self.requires(os.environ.get("GRPC_CONAN_REFERENCE", "grpc/1.69.0"))
+        self.requires(os.environ.get("SKAB_GRPC_CONAN_REFERENCE", "grpc/1.69.0"))
 
     # GoogleTest is linked only into the test executables, which are not packaged.
     # Declaring it as a test requirement keeps it out of dependencies.host, and so

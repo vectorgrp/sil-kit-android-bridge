@@ -16,7 +16,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include(cmake/WindowsRuntime.cmake)
 include(cmake/gRPC.cmake)
 find_package(SilKit REQUIRED)
-include(cmake/gtest.cmake)  # must follow gRPC.cmake (shares the Conan install on Windows)
+include(cmake/gtest.cmake)  # must follow gRPC.cmake (shares its Conan install)
 
 enable_testing()
 add_subdirectory(source)

@@ -42,23 +42,24 @@ A copy of the Apache License, Version 2.0 is available at
 ## Link-time dependencies (not vendored)
 
 These are resolved at build time and are not present in this repository, but the compiled
-binaries link against them. **On Windows they are linked statically**, which means a
-distributed Windows binary contains them and their notices have to travel with it.
+binaries link against them. **They are linked statically on both platforms**, so a
+distributed binary contains them and their notices have to travel with it.
 
-| Component | License | Linkage (Windows) | Source |
-|-----------|---------|-------------------|--------|
-| gRPC | Apache-2.0 | static | ConanCenter (Windows) / distribution packages (Linux) |
+| Component | License | Linkage | Source |
+|-----------|---------|---------|--------|
+| gRPC | Apache-2.0 | static | ConanCenter |
 | Protobuf | BSD-3-Clause | static | pulled in with gRPC |
 | abseil | Apache-2.0 | static | pulled in with gRPC |
 | OpenSSL | Apache-2.0 | static | pulled in with gRPC |
 | re2 | BSD-3-Clause | static | pulled in with gRPC |
 | c-ares | MIT | static | pulled in with gRPC |
 | zlib | Zlib | static | pulled in with gRPC |
-| Vector SIL Kit | MIT | shared, `SilKit.dll` is shipped in the archive | public GitHub releases |
-| GoogleTest / GoogleMock | BSD-3-Clause | tests only, not packaged | ConanCenter (Windows) / distribution packages (Linux) |
+| Vector SIL Kit | MIT | shared; `SilKit.dll` ships in the Windows archive, `libsilkit` comes from a `.deb` | public GitHub releases |
+| GoogleTest / GoogleMock | BSD-3-Clause | tests only, not packaged | ConanCenter |
 
-On Linux these come from distribution packages, are linked dynamically, and the `.deb`
-declares them through `dpkg-shlibdeps`, so the distribution's own copyright files apply.
+Building with `-DSKAB_STATIC_DEPS=OFF` uses the distribution's packages and links them
+dynamically instead; the `.deb` then declares them through `dpkg-shlibdeps` and the
+distribution's own copyright files apply. The released artifacts are not built that way.
 
 ### Notices shipped with the binaries
 
@@ -72,6 +73,13 @@ and SPDX identifiers. The texts for the Conan-resolved components are collected 
 time by [cmake/conan/licenses_deployer.py](cmake/conan/licenses_deployer.py), and everything
 is installed by [cmake/Notices.cmake](cmake/Notices.cmake). That index is authoritative for
 versions; the tables in this file name components, not versions.
+
+Neither half is left to inspection. The deployer fails the configure if a dependency ships
+no license text, and `ci/assert-notices.sh` fails CI if the packaged archive is missing a
+directory for anything the index lists, or any of the vendored components. Run it yourself
+against an unpacked package:
+
+    ci/assert-notices.sh <unpacked>/share/doc/sil-kit-android-bridge/licenses
 
 Apache-2.0 section 4(d) is the operative obligation for gRPC, abseil and OpenSSL, and it is
 satisfied by that directory. If you repackage these binaries by other means, carry those

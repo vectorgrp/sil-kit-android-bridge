@@ -176,13 +176,13 @@ a type mismatch. Two consequences worth knowing:
   on the wire format (a `uint32` length prefix then raw bytes, identical to
   `string`). The write direction is step `5.2` of `CheckAllPropertyTypes` and has
   not been run yet.
-- Step `7` of `CheckAllPropertyTypes` (`GetPropertyStatus`) has not been run
-  yet. It is also the step most likely to fail first against a device: the
-  bridge preloads the property configuration table at startup so the call does
-  not stream it inside `testWaitForAnswer`'s 100 ms, but that preload is best
-  effort, and a VHAL with a slow or very large table would push the first call
-  past the budget. If step `7.1` reports no answer, raise `maxWait` before
-  suspecting the contract.
+- `VhalUtils.cin` and the vCDL compile as a test unit, and the
+  `GetPropertyStatus` wire format is verified against CANoe DE, but step `7` of
+  `CheckAllPropertyTypes` has not been *run*. It is also the likeliest to fail
+  first against a device: the bridge preloads the property configuration table
+  at startup, but that is best effort, and a VHAL with a large table could push
+  the first call past `testWaitForAnswer`'s 100 ms. If step `7.1` reports no
+  answer, raise `maxWait` before suspecting the contract.
 - The CAPL helpers copy the result into a caller-supplied buffer, so size it for
   the properties you read. `VhalGetBytes` also returns the length, taken from
   `elcount()` on the result, which is how Vector's own samples bound a `bytes`

@@ -19,19 +19,21 @@ variables
     long kVhalTypeFloat     = 3;
     long kVhalTypeString    = 4;
     long kVhalTypeBytes     = 5;
-}
 
-// Mirrors struct VhalPropertyStatus in VhalSimple.vcdl, as a plain CAPL struct
-// so no vCDL type has to be named in a declaration.
-struct VhalPropertyStatusView
-{
-    long exists;
-    long readable;
-    long writable;
-    long knownName;
-    long valueType;
-    long queryFailed;
-};
+    // Mirrors struct VhalPropertyStatus in VhalSimple.vcdl, as a plain CAPL
+    // struct so no vCDL type has to be named in a declaration. Must stay inside
+    // this variables block; at file scope CAPL reports a parse error against the
+    // following line, which reads like the struct itself is wrong.
+    struct VhalPropertyStatusView
+    {
+        long exists;
+        long readable;
+        long writable;
+        long knownName;
+        long valueType;
+        long queryFailed;
+    };
+}
 
 // Contract version served by the bridge. Compare against the value this VCDL was
 // written for; a mismatch explains an otherwise silent failure to match.

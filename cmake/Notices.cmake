@@ -4,20 +4,21 @@
 # Installs the project documentation and the third-party license texts that have
 # to travel with the binaries.
 #
-# On Windows gRPC, Protobuf, abseil, OpenSSL, re2, c-ares and zlib are static
-# libraries linked into the executables, and SilKit.dll is copied into the
-# archive, so distributing the package distributes them. Apache-2.0 section 4(d)
-# and the BSD/MIT attribution clauses all require their notices to come along.
-# On Linux those come from apt, are dynamically linked, and the .deb declares
-# them through dpkg-shlibdeps, so the distribution's own copyright files apply
-# and only the vendored components need covering.
+# With SKAB_STATIC_DEPS=ON (the default) gRPC, Protobuf, abseil, OpenSSL, re2,
+# c-ares and zlib are linked into the executables on both platforms, so
+# distributing the package distributes them, and Apache-2.0 4(d) plus the
+# BSD/MIT attribution clauses require their notices along with it. With OFF they
+# come from the distribution and its own copyright files apply.
+#
+# SIL Kit is always separate: SilKit.dll ships inside the Windows archive,
+# libsilkit comes from a .deb that carries its own copyright file.
 #
 # Layout under <docdir>/licenses/:
 #   aosp-vhal/NOTICE          vendored AOSP VHAL (Apache-2.0)
 #   spdlog/LICENSE            vendored spdlog (MIT)
 #   fmt/fmt.license.rst       fmt, bundled by spdlog (MIT)
 #   silkit/...                SIL Kit and its own third-party notices (Windows)
-#   <name>-<version>/...      one per Conan dependency (Windows)
+#   <name>-<version>/...      one per Conan dependency
 #   NOTICES-conan.md          index of the above, written by the deployer
 
 include(GNUInstallDirs)
@@ -120,7 +121,12 @@ if(WIN32)
             "license text; add it by hand before distributing.")
     endif()
 
-    # Written by cmake/conan/licenses_deployer.py during fetch_conan().
+endif()
+
+# Written by cmake/conan/licenses_deployer.py during fetch_conan(). Outside the
+# WIN32 block above: the dependencies are linked in on every platform, and
+# shipping them without notices is a licence violation.
+if(SKAB_STATIC_DEPS)
     if(SKAB_CONAN_LICENSE_DIR AND EXISTS "${SKAB_CONAN_LICENSE_DIR}")
         install(DIRECTORY "${SKAB_CONAN_LICENSE_DIR}/"
             DESTINATION "${SKAB_NOTICES_DESTINATION}")

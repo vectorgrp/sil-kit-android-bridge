@@ -138,22 +138,38 @@ before CI has attached them - under immutable releases that seals the release
 and burns the tag name for good. See the Releasing section in docs/building.md.
 
 ## building
-use cmake preset `debug` on Linux, `relwithdebinfo` on Windows. The `debug`
-preset is disabled on Windows: ConanCenter publishes no Debug binaries, so a
-Debug configure would compile the whole dependency tree from source.
+use cmake preset `debug` on Linux, `relwithdebinfo` on Windows. ConanCenter
+publishes no Debug binaries for this graph on either platform, so a Debug build
+links the published Release dependencies; only this project's code is Debug. On
+Windows that is impossible - `/MDd` and `/MD` are different C runtimes - so a
+Debug configure is refused there outright.
 
-Linux resolves gRPC, Protobuf and GoogleTest from apt. Windows resolves them
-with Conan 2: `cmake/fetch_conan.cmake` provisions a Conan 2 client into
-`_build/conan-venv` using `uv` and runs `conan install` at configure time, so the
-Conan 1 client that corporate machines have on PATH is never used. Build from a
-Visual Studio developer command prompt. The Conan home is `_build/conan2`, so a
-build writes nothing outside the repository; it carries
-`cmake/conan/compatibility.py`, which lets a newer MSVC reuse the msvc 194
-binaries ConanCenter publishes - do not pin `compiler.version` or
-`compiler.cppstd` in a profile to achieve that, both make things worse. See the
-Prerequisites section in docs/building.md.
+`SKAB_STATIC_DEPS` (default ON) resolves gRPC, Protobuf and GoogleTest with
+Conan 2 on **both** platforms and links them in, which is what makes the
+released binaries runnable anywhere: the 0.4.x Linux archive was linked against
+the runner's libprotobuf/libgrpc++ and started only on that Ubuntu release.
+`ci/assert-static-deps.sh` and the `PackagedBinaryHasNoDynamicVendoredDeps`
+CTest case enforce it; CI also starts the packaged binary in a bare container.
+OFF falls back to the distribution's packages, which link dynamically.
+
+`cmake/fetch_conan.cmake` provisions a Conan 2 client into
+`_build/<OS>/conan-venv` using `uv` and runs `conan install` at configure time,
+so the Conan 1 client that corporate machines have on PATH is never used. Build
+Windows from a Visual Studio developer command prompt. The Conan home is
+`_build/<OS>/conan2`, so a build writes nothing outside the repository; both are
+scoped by host system because the home holds Conan's detected `default` profile,
+and sharing one makes a WSL configure resolve the Windows graph. The home
+carries `cmake/conan/compatibility.py`, which lets a newer MSVC reuse the msvc
+194 binaries ConanCenter publishes - do not pin `compiler.version` or
+`compiler.cppstd` in a profile to achieve that, both make things worse.
+
+Do not install apt's `protobuf-compiler` / `protobuf-compiler-grpc` on a Linux
+dev box: Conan's build modules find them over PATH and would generate stubs for
+the wrong version. `cmake/gRPC.cmake` re-points both and logs when it does. See
+the Prerequisites section in docs/building.md.
 
 Dependencies are linked statically, so their license texts have to be
 redistributed: `cmake/conan/licenses_deployer.py` collects them from the Conan
-packages and `cmake/Notices.cmake` installs them alongside the vendored ones.
-Adding or removing a dependency means checking `THIRD_PARTY_NOTICES.md`.
+packages and `cmake/Notices.cmake` installs them alongside the vendored ones, on
+both platforms. Adding or removing a dependency means checking
+`THIRD_PARTY_NOTICES.md`.
