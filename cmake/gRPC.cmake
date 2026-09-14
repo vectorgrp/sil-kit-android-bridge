@@ -10,17 +10,19 @@
 #   protobuf::libprotobuf   - Protobuf library
 #   protobuf::protoc        - protoc compiler
 #
-# Linux (Ubuntu 22.04): apt install libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc
-# Windows: gRPC via Conan 2 (conanfile.py + cmake/fetch_conan.cmake), which puts
-#          the CMakeDeps-generated package configurations on CMAKE_PREFIX_PATH.
-#          The gRPC reference and the Conan profile are overridable
-#          (GRPC_CONAN_REFERENCE / CONAN_PROFILE).
+# SKAB_STATIC_DEPS=ON (the default) resolves them with Conan 2 (conanfile.py +
+# cmake/fetch_conan.cmake) and links them in; a dynamically linked build names
+# the build host's libprotobuf/libgrpc++ soversions and starts nowhere else.
+# OFF uses the system packages, for which apt ships no static archives.
 #
 # Passing a CMAKE_TOOLCHAIN_FILE (vcpkg, a corporate toolchain, ...) skips the
 # Conan bootstrap entirely: the toolchain is then responsible for making the
 # packages findable, and the config-mode branch below picks them up unchanged.
 
-if(WIN32 AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+option(SKAB_STATIC_DEPS
+    "Resolve gRPC, Protobuf and GoogleTest with Conan 2 and link them statically" ON)
+
+if(SKAB_STATIC_DEPS AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     include(${CMAKE_CURRENT_LIST_DIR}/fetch_conan.cmake)
     fetch_conan()
 endif()
@@ -46,6 +48,39 @@ else()
 
     find_package(Protobuf MODULE REQUIRED)
     message(STATUS "gRPC: found via pkg-config")
+endif()
+
+# Conan's build modules find these with a bare find_program() over PATH, so an
+# installed system copy wins over the package being linked - and protoc caches
+# its choice, so one bad configure sticks.
+function(_skab_pin_tool_to_package target pkg_prefix tool)
+    if(NOT TARGET ${target})
+        return()
+    endif()
+    string(TOUPPER "${CMAKE_BUILD_TYPE}" _cfg)
+    set(_folder "${${pkg_prefix}_PACKAGE_FOLDER_${_cfg}}")
+    if(NOT _folder)
+        return()
+    endif()
+    set(_expected "${_folder}/bin/${tool}${CMAKE_EXECUTABLE_SUFFIX}")
+    if(NOT EXISTS "${_expected}")
+        return()
+    endif()
+    get_target_property(_actual ${target} IMPORTED_LOCATION)
+    if(_actual STREQUAL _expected)
+        return()
+    endif()
+    message(STATUS "gRPC: re-pointing ${target} from '${_actual}' to the Conan package")
+    set_property(TARGET ${target} PROPERTY IMPORTED_LOCATION "${_expected}")
+    if("${target}" STREQUAL "protobuf::protoc")
+        # FindProtobuf and the fallback below both read this cache entry.
+        set(Protobuf_PROTOC_EXECUTABLE "${_expected}" CACHE FILEPATH "The protoc compiler" FORCE)
+    endif()
+endfunction()
+
+if(SKAB_STATIC_DEPS)
+    _skab_pin_tool_to_package(gRPC::grpc_cpp_plugin grpc grpc_cpp_plugin)
+    _skab_pin_tool_to_package(protobuf::protoc protobuf protoc)
 endif()
 
 # gRPC's own config exports grpc_cpp_plugin as an imported executable, and so do

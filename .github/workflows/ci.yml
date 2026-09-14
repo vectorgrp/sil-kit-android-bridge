@@ -18,7 +18,7 @@ jobs:
   # Its own job so a mismatch is reported before both platforms build.
   version-check:
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v7
@@ -36,19 +36,34 @@ jobs:
           echo "tag ${GITHUB_REF_NAME} matches project version ${version}"
 
   build-linux:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v7
 
+      # gRPC, Protobuf and GoogleTest come from Conan. apt's protoc and
+      # grpc_cpp_plugin are left out on purpose: Conan's build modules find them
+      # over PATH and would generate stubs for the wrong version.
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             cmake ninja-build \
-            libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc \
-            libgtest-dev libgmock-dev \
             dpkg-dev
+
+      # pipx is preinstalled on the runner image and unaffected by PEP 668.
+      - name: Install uv
+        run: pipx install uv
+
+      # Keyed on the runner image, not runner.os: the package_id encodes the
+      # compiler. compatibility.py decides which binaries are reusable.
+      - name: Cache Conan packages
+        uses: actions/cache@v6
+        with:
+          path: _build/Linux/conan2/p
+          key: conan2-ubuntu-24.04-${{ hashFiles('conanfile.py', 'cmake/conan/compatibility.py') }}
+          restore-keys: |
+            conan2-ubuntu-24.04-
 
       - name: Install SilKit
         run: |
@@ -63,8 +78,10 @@ jobs:
             rm /tmp/${pkg}; \
           done
 
+      # --build=never: a miss is reported in seconds rather than silently
+      # compiling the whole graph for an hour.
       - name: Configure
-        run: cmake --preset relwithdebinfo
+        run: cmake --preset relwithdebinfo -DSKAB_CONAN_BUILD_POLICY=never
 
       - name: Build
         run: cmake --build --preset relwithdebinfo
@@ -74,6 +91,34 @@ jobs:
 
       - name: Package
         run: cmake --build --preset relwithdebinfo --target package
+
+      # A CTest case covers the build-tree binary; this is what people download.
+      - name: Packaged binaries must not need protobuf or gRPC
+        run: |
+          set -euo pipefail
+          zip=$(ls _build/Linux/relwithdebinfo/*-Linux-x86_64.zip)
+          rm -rf pkg && mkdir pkg
+          unzip -q "$zip" -d pkg
+          # CPack nests under <package>-<version>-<platform>/; flatten it.
+          mv pkg/*/ pkg/root
+          ./ci/assert-static-deps.sh pkg/root/bin/*
+
+      - name: Packaged binaries must carry their license texts
+        run: |
+          set -euo pipefail
+          ./ci/assert-notices.sh pkg/root/share/doc/sil-kit-android-bridge/licenses
+
+      # The 0.4.x regression was invisible until the binary ran somewhere the
+      # libraries were not installed. Mount SIL Kit and nothing else.
+      - name: Packaged binary starts in a bare container
+        run: |
+          set -euo pipefail
+          rm -rf silkit-runtime && mkdir -p silkit-runtime
+          cp -a /usr/lib/x86_64-linux-gnu/libSilKit.so* silkit-runtime/
+          docker run --rm \
+            -v "$PWD/pkg:/pkg:ro" -v "$PWD/silkit-runtime:/silkit:ro" \
+            -e LD_LIBRARY_PATH=/silkit \
+            ubuntu:24.04 /pkg/root/bin/sil-kit-android-bridge --version
 
       # Only the release job consumes these. Packaging itself still runs on every
       # build, so a broken CPack config fails in the PR rather than at tag time.
@@ -104,10 +149,10 @@ jobs:
       - name: Cache Conan packages
         uses: actions/cache@v6
         with:
-          path: _build/conan2/p
-          key: conan2-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
+          path: _build/Windows/conan2/p
+          key: conan2-windows-2022-${{ hashFiles('conanfile.py', 'cmake/conan/compatibility.py') }}
           restore-keys: |
-            conan2-${{ runner.os }}-
+            conan2-windows-2022-
 
       - name: Install SilKit
         shell: pwsh
@@ -137,6 +182,17 @@ jobs:
           ctest --preset relwithdebinfo --output-on-failure && ^
           cmake --build --preset relwithdebinfo --target package
 
+      # The dependencies are linked in here too, so the same obligation applies.
+      - name: Packaged binaries must carry their license texts
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip=$(ls _build/Windows/relwithdebinfo/*-Windows-x86_64.zip)
+          rm -rf pkg && mkdir pkg
+          unzip -q "$zip" -d pkg
+          mv pkg/*/ pkg/root
+          ./ci/assert-notices.sh pkg/root/share/doc/sil-kit-android-bridge/licenses
+
       - name: Upload packages
         if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v7
@@ -147,7 +203,7 @@ jobs:
   release:
     needs: [version-check, build-linux, build-windows]
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
 

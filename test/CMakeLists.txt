@@ -167,3 +167,17 @@ include(GNUInstallDirs)
 install(TARGETS silkit-client
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+# ---- Packaging guard ----
+
+# Nothing else in this suite looks at how the binary was linked: the 0.4.x
+# artifact named the runner's libprotobuf/libgrpc++ soversions and started
+# nowhere else, with every test here passing.
+if(UNIX AND NOT APPLE AND SKAB_STATIC_DEPS)
+    add_test(NAME PackagedBinaryHasNoDynamicVendoredDeps
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../ci/assert-static-deps.sh
+                $<TARGET_FILE:sil-kit-android-bridge>
+                $<TARGET_FILE:silkit-client>)
+    set_tests_properties(PackagedBinaryHasNoDynamicVendoredDeps
+        PROPERTIES TIMEOUT ${SKAB_TEST_TIMEOUT})
+endif()

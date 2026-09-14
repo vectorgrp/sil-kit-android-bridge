@@ -18,7 +18,7 @@
 
         {
             "name": "debug",
-            "description": "Linux only. ConanCenter publishes no Windows Debug binaries, so a Debug build there compiles the whole dependency tree from source; use relwithdebinfo on Windows.",
+            "description": "Linux only. A Debug build links the published Release dependencies; on Windows that is impossible because /MDd and /MD are different C runtimes, so use relwithdebinfo there.",
             "inherits": ["mixin-dirs"],
             "condition": {
                 "type": "notEquals",
