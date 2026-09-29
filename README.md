@@ -53,6 +53,17 @@ scope: **[docs/vhal-simple-api.md](docs/vhal-simple-api.md)**.
 
 ## Build
 
+Prerequisites:
+
+- a C++17 compiler: GCC on Ubuntu, Visual Studio 2019 or newer on Windows
+- CMake >= 3.21 and Ninja
+- [uv](https://docs.astral.sh/uv/), which provisions the Conan 2 client
+- [SIL Kit](https://github.com/vectorgrp/sil-kit/releases) 5 (CI uses 5.0.6)
+
+gRPC, Protobuf and GoogleTest are fetched by Conan at configure time. Install
+commands, and what to set behind a TLS-inspecting corporate proxy, are in
+[docs/building.md](docs/building.md#prerequisites).
+
 ```sh
 cmake --preset relwithdebinfo
 cmake --build --preset relwithdebinfo
@@ -63,8 +74,7 @@ The presets are `debug`, `release` and `relwithdebinfo`; `debug` is Linux-only.
 On Windows, build from a Visual Studio developer command prompt.
 
 The primary target platform is Ubuntu; the build depends only on publicly
-available packages. Windows is built and tested in CI as well. What has to be
-installed first is in [docs/building.md](docs/building.md).
+available packages. Windows is built and tested in CI as well.
 
 ## Quick start
 

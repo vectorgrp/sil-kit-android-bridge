@@ -8,8 +8,10 @@
 |------------|----------------|
 | **SIL Kit** | `sudo dpkg -i libsilkit5_<version>-1ubuntu1_amd64.deb libsilkit-dev_<version>-1ubuntu1_amd64.deb silkit-utils_<version>-1ubuntu1_amd64.deb` from [GitHub Releases](https://github.com/vectorgrp/sil-kit/releases) |
 | **gRPC + Protobuf + GTest** | fetched automatically with Conan 2 (see below) |
-| **CMake** | >= 3.21 |
-| **uv** | [astral.sh/uv](https://docs.astral.sh/uv/) |
+| **Compiler + Ninja** | `sudo apt install build-essential ninja-build` |
+| **CMake** | >= 3.21, `sudo apt install cmake` |
+| **uv** | `pipx install uv`, or see [astral.sh/uv](https://docs.astral.sh/uv/) |
+| **dpkg-dev** | optional, `sudo apt install dpkg-dev`. Without it the `.deb` from the `package` target declares no runtime dependencies (`dpkg-shlibdeps`) |
 
 Do **not** install `protobuf-compiler` or `protobuf-compiler-grpc`. Conan's
 build modules find them on `PATH` and would generate code for the wrong
@@ -27,6 +29,23 @@ version. `cmake/gRPC.cmake` works around it and logs when it does.
 
 Build from a Visual Studio developer command prompt (or after `vcvars64.bat`),
 so the compiler and Ninja are on `PATH`.
+
+### Behind a TLS-inspecting proxy
+
+Configure fails with `invalid peer certificate: UnknownIssuer` from
+`uv pip install`, or with an SSL error from `conan install`. Neither tool uses
+the system certificate store by default: uv has its own bundled roots, Conan
+uses the `certifi` bundle. With the corporate root CA in the system store
+(`update-ca-certificates`), point both at it:
+
+```sh
+export UV_SYSTEM_CERTS=1
+export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+```
+
+These are environment variables rather than Conan configuration because the
+Conan home is inside `_build/`, and `rm -rf _build` would delete that
+configuration. Verified on Linux and WSL; Windows is not covered.
 
 ## Build
 

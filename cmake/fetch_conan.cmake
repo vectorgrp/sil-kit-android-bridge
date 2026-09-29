@@ -141,7 +141,7 @@ function(_skab_provision_conan out_var)
             message(FATAL_ERROR
                 "uv was not found on PATH. It is used to provision a Conan 2 client into "
                 "'${SKAB_CONAN_VENV_DIR}'. Install uv (https://docs.astral.sh/uv/), or point "
-                "-DCONAN_EXECUTABLE=<path> at an existing Conan 2 client.")
+                "-DSKAB_CONAN_EXECUTABLE=<path> at an existing Conan 2 client.")
         endif()
 
         if(NOT EXISTS "${_venv_python}")
@@ -162,7 +162,8 @@ function(_skab_provision_conan out_var)
             RESULT_VARIABLE _res
         )
         if(NOT _res EQUAL 0)
-            message(FATAL_ERROR "uv pip install '${SKAB_CONAN_REQUIREMENT}' failed (exit ${_res}).")
+            message(FATAL_ERROR "uv pip install '${SKAB_CONAN_REQUIREMENT}' failed (exit ${_res}). "
+                "On a certificate error, see 'Behind a TLS-inspecting proxy' in docs/building.md.")
         endif()
     endif()
 
@@ -323,7 +324,8 @@ function(fetch_conan)
     if(NOT _res EQUAL 0)
         message(FATAL_ERROR "conan install failed (exit ${_res}). "
             "Set SKAB_GRPC_CONAN_REFERENCE / SKAB_CONAN_PROFILE (e.g. via CMakeUserPresets.json) "
-            "to point at a Conan remote that provides the gRPC package.")
+            "to point at a Conan remote that provides the gRPC package. On an SSL error, see "
+            "'Behind a TLS-inspecting proxy' in docs/building.md.")
     endif()
 
     list(PREPEND CMAKE_PREFIX_PATH "${_generators_dir}")
