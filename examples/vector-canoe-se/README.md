@@ -102,7 +102,7 @@ plausible zero. `CheckAllPropertyTypes` asserts against exactly these:
 | `float` | `INSTANTANEOUS_EV_EFFICIENCY` | `6.25` |
 | `float` | `PERF_VEHICLE_SPEED` | `27.75` |
 | `float` | `PERF_ODOMETER` | `123456.75` |
-| `string` | `INFO_VIN` | `WVWZZZ1JZXW000001` |
+| `string` | `INFO_VIN` | `SILKITVHALBRIDGE1` |
 | `string` | `INFO_MAKE` | `Vector` |
 | `string` | `INFO_MODEL` | `SIL Kit Android Bridge` |
 | `bytes` | `STORAGE_ENCRYPTION_BINDING_SEED` | `DE AD BE EF` |

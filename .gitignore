@@ -6,7 +6,6 @@ CMakeUserPresets.json
 __pycache__
 sil-kit-android-bridge-*-*-*.zip
 sil-kit-android-bridge-*-*-*/
-design/
 # CANoe Desktop / Server Edition generated output next to the example sources.
 # environment-make and canoe-se write these; run_canoe_se.sh writes _OUT/.
 examples/vector-canoe-se/Default/

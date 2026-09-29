@@ -272,10 +272,10 @@ export testcase CheckMockSeedValues()
     }
 
     status = VhalGetString("INFO_VIN", text);
-    if (status > 0 && strncmp(text, "WVWZZZ1JZXW000001", 17) == 0) {
+    if (status > 0 && strncmp(text, "SILKITVHALBRIDGE1", 17) == 0) {
         testStepPass("4.1", "INFO_VIN = %s", text);
     } else {
-        testStepFail("4.1", "INFO_VIN: status=%d, value=%s (expected the seeded WVWZZZ1JZXW000001)", status, text);
+        testStepFail("4.1", "INFO_VIN: status=%d, value=%s (expected the seeded SILKITVHALBRIDGE1)", status, text);
     }
 
     status = VhalGetBytes("STORAGE_ENCRYPTION_BINDING_SEED", blob, blobLen);

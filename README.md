@@ -95,9 +95,9 @@ No assignments on the command line; reading PROPERTY=value lines from stdin (Ctr
 EV_BATTERY_LEVEL=88.5
 SET  EV_BATTERY_LEVEL = 88.5 (float) -> Success
 GET  EV_BATTERY_LEVEL = 88.5 (float)
-INFO_VIN=WVWZZZ1JZXW000001
-SET  INFO_VIN = 'WVWZZZ1JZXW000001' (string) -> Success
-GET  INFO_VIN = WVWZZZ1JZXW000001 (string)
+INFO_VIN=SILKITVHALBRIDGE1
+SET  INFO_VIN = 'SILKITVHALBRIDGE1' (string) -> Success
+GET  INFO_VIN = SILKITVHALBRIDGE1 (string)
 ```
 
 The method family is chosen from the AOSP property-id type bits, so a plain
@@ -159,7 +159,7 @@ ctest --preset relwithdebinfo --output-on-failure
 
 The suite is self-contained: it starts its own SIL Kit registry and its own fake
 VHAL, so it needs neither a running `sil-kit-registry` nor an Android device.
-What each target covers is in [AGENTS.md](AGENTS.md#testing).
+What each target covers is in [docs/testing.md](docs/testing.md).
 
 ## Examples
 
@@ -172,16 +172,15 @@ Vector tooling; everything else in this repository does not.
 
 - [docs/vhal-simple-api.md](docs/vhal-simple-api.md) - the API in full: every
   method, the `GetPropertyStatus` struct, scope, and the wire contract
-- [docs/building.md](docs/building.md) - prerequisites, Conan on Windows,
-  packaging and releasing
-- [AGENTS.md](AGENTS.md) - engineering rules and the test layout
+- [docs/building.md](docs/building.md) - prerequisites, Conan, packaging and
+  releasing
+- [docs/testing.md](docs/testing.md) - test rules and what each target covers
 - [docs/](docs/) - index of the above
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the DCO sign-off requirement and the
-coding conventions, [AGENTS.md](AGENTS.md) for the engineering rules the codebase
-follows, and [SECURITY.md](SECURITY.md) for how to report a vulnerability
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the DCO sign-off and the coding
+conventions, and [SECURITY.md](SECURITY.md) for how to report a vulnerability
 privately.
 
 ## License

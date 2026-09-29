@@ -7,7 +7,7 @@
 # CMAKE_PREFIX_PATH so the ordinary find_package() calls in cmake/gRPC.cmake and
 # cmake/gtest.cmake resolve them.
 #
-# The Conan client on PATH is deliberately NOT used. Corporate machines commonly
+# The Conan client on PATH is deliberately NOT used. Many machines
 # have a system-wide Conan 1.x installation, which cannot read the Conan 2
 # conanfile.py in this repository. Bootstrapping into ${SKAB_CONAN_VENV_DIR} keeps the
 # build self-contained and leaves an existing Conan 1 setup untouched: Conan 1
@@ -22,8 +22,8 @@
 # SKAB_STATIC_DEPS is OFF or a CMAKE_TOOLCHAIN_FILE was supplied.
 #
 # Cache variables:
-#   SKAB_GRPC_CONAN_REFERENCE - full Conan reference for gRPC, e.g. to select an
-#                          internal Artifactory channel instead of ConanCenter.
+#   SKAB_GRPC_CONAN_REFERENCE - full Conan reference for gRPC, e.g. to select a
+#                          different remote or channel instead of ConanCenter.
 #   SKAB_CONAN_PROFILE        - Conan 2 profile name for the host and build context.
 #                          Empty uses the 'default' profile, which is created by
 #                          `conan profile detect` if it does not exist yet.

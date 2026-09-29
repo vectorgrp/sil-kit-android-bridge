@@ -1,50 +1,62 @@
 # Contributing
 
-Thank you for your interest in this project. Contributions are welcome.
+Contributions are welcome. For a substantial change, open an issue first.
 
-## License of contributions
+## License and sign-off
 
-This project is licensed under the MIT License (see [LICENSE.md](LICENSE.md)). By submitting
-a contribution, you agree that your contribution is provided under the same MIT License and
-that you have the right to submit it.
+Contributions are accepted under the MIT License ([LICENSE.md](LICENSE.md)).
+Vendored third-party code keeps its own license and headers; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Note that this repository also vendors third-party code under other licenses (notably the
-AOSP Vehicle HAL under Apache-2.0); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-Do not relicense vendored third-party code, and preserve its existing license headers.
-
-## Developer Certificate of Origin (DCO)
-
-This project uses the [Developer Certificate of Origin](https://developercertificate.org/).
-Every commit must be signed off, certifying that you wrote the change or otherwise have the
-right to submit it under the project's license. Add a sign-off line to each commit:
+Every commit needs a [Developer Certificate of Origin](https://developercertificate.org/)
+sign-off, with the same name and email as the commit author:
 
 ```
 Signed-off-by: Your Name <your.email@example.com>
 ```
 
-Use `git commit --signoff` (`-s`) to add it automatically. The name and email in the
-sign-off must match those of the commit author. Pull requests with unsigned commits will
-not be merged.
+`git commit -s` adds it for you. Pull requests with unsigned commits are not
+merged.
 
-## Before you start
+## Repository layout
 
-- Open an issue to discuss substantial changes before investing significant effort.
-- Keep changes focused; unrelated fixes belong in separate pull requests.
+| Path | Contents |
+|------|----------|
+| `source/` | the bridge |
+| `source/third_party/` | vendored AOSP VHAL interface and spdlog |
+| `test/` | unit and integration tests, test helpers, manual tools |
+| `cmake/`, `ci/` | build modules and CI checks |
+| `examples/vector-canoe-se/` | CANoe Server Edition test configuration |
+| `docs/` | documentation |
 
-## Coding standards
+## Coding conventions
 
-- New source files must carry the SPDX header:
-  `// SPDX-FileCopyrightText: <year> Vector Informatik GmbH`
-  `// SPDX-License-Identifier: MIT`
-- Follow the conventions in [AGENTS.md](AGENTS.md): test-driven development, C++17,
-  `clang-format` formatting, and the `Test_*` / `ITest_*` test naming split.
-- Do not use non-ASCII characters in code or comments.
+- Write the test first, watch it fail, then implement. See
+  [docs/testing.md](docs/testing.md).
+- C++17. Format with `clang-format`. ASCII only in code and comments.
+- Prefer composition over inheritance, and templates and static dispatch over
+  virtual interfaces. Add an interface only where a test needs to inject a
+  dependency.
+- Use trailing return types: `auto foo() -> int`.
+- In header-only code, put all declarations first and the implementations in
+  one block after them.
+- Prefix project-owned CMake variables, compile definitions and environment
+  variables with `SKAB_` / `skab_`. `SK_` and `SAB_` collide with other projects.
+- Every new file carries the SPDX header, with the current year:
+  ```
+  // SPDX-FileCopyrightText: 2026 Vector Informatik GmbH
+  // SPDX-License-Identifier: MIT
+  ```
+- Adding or removing a dependency means updating
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Submitting changes
+## Submitting a change
 
-1. Fork the repository and create a topic branch.
-2. Add or update tests that capture the new behavior.
-3. Ensure the project builds and the tests pass: configure with `cmake --preset debug`
-   on Linux or `cmake --preset relwithdebinfo` on Windows (the `debug` preset is
-   Linux-only, see the README), then build and run `ctest --preset <same>`.
-4. Open a pull request describing the change and referencing any related issue.
+1. Fork the repository and create a topic branch. Keep the change focused.
+2. Build and test (prerequisites are in [docs/building.md](docs/building.md)):
+   ```sh
+   cmake --preset relwithdebinfo
+   cmake --build --preset relwithdebinfo
+   ctest --preset relwithdebinfo --output-on-failure
+   ```
+3. Open a pull request that explains the change and links its issue.

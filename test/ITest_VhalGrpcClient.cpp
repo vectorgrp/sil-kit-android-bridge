@@ -58,7 +58,7 @@ protected:
         Server().SeedInt32(kInt32Id, 2026);
         Server().SeedInt64(kInt64Id, 1767225600000LL);
         Server().SeedFloat(kFloatId, 88.5f);
-        Server().SeedString(kStringId, "WVWZZZ1JZXW000001");
+        Server().SeedString(kStringId, "SILKITVHALBRIDGE1");
         Server().SeedBytes(kBytesId, kSeed);
     }
 
@@ -99,7 +99,7 @@ TEST_F(GrpcClientTest, ReadsEachTypeTheApiModels)
 
     const auto str = client_->GetProperty(kStringName);
     ASSERT_TRUE(str.has_value());
-    EXPECT_EQ(str->Get<std::string>().value(), "WVWZZZ1JZXW000001");
+    EXPECT_EQ(str->Get<std::string>().value(), "SILKITVHALBRIDGE1");
 
     const auto bytes = client_->GetProperty(kBytesName);
     ASSERT_TRUE(bytes.has_value());

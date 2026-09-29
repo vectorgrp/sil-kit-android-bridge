@@ -274,12 +274,12 @@ TEST_F(AdapterRpcTest, SetThenGetInt64RoundTrip)
 
 TEST_F(AdapterRpcTest, SetThenGetStringRoundTrip)
 {
-    const auto setResult = canoe_->Call(setStringClient_, ToSpan(SetStringReq("INFO_VIN", "WVWZZZ1JZXW000001")));
+    const auto setResult = canoe_->Call(setStringClient_, ToSpan(SetStringReq("INFO_VIN", "SILKITVHALBRIDGE1")));
     ASSERT_EQ(setResult.status, Rpc::RpcCallStatus::Success);
 
     const auto getResult = canoe_->Call(getStringClient_, ToSpan(GetReq("INFO_VIN")));
     ASSERT_EQ(getResult.status, Rpc::RpcCallStatus::Success);
-    EXPECT_EQ(ParseString(getResult.data), "WVWZZZ1JZXW000001");
+    EXPECT_EQ(ParseString(getResult.data), "SILKITVHALBRIDGE1");
 }
 
 TEST_F(AdapterRpcTest, SetThenGetBytesRoundTrip)
