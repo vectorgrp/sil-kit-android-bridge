@@ -25,6 +25,25 @@ you do not have CANoe.
 | `run_canoe_se.sh` | Builds the environment and test unit, then runs CANoe SE against them. |
 | `get_vhal_proxy_socket.sh` | Prints the unix socket of a running `vhal_proxy_server`, for use as `--vhal-uri`. |
 
+### Test steps
+
+A step number in this README, such as step `4.2`, is the step ID a test case
+writes into the CANoe test report (the first argument of `testStepPass` /
+`testStepFail` in `VhalTest.can`). The three test cases number their steps
+independently; unless a passage names another test case, a step number refers
+to `CheckAllPropertyTypes`:
+
+| Step | `CheckAllPropertyTypes` checks |
+|------|--------------------------------|
+| `0.1` | `GetApiVersion` answers with version 1 |
+| `1.1` / `1.2` | `int32`: the read answers / a write round-trips (`EV_CHARGE_PORT_CONNECTED`) |
+| `2.1` / `2.2` | `int64`, the same pair (`ANDROID_EPOCH_TIME`) |
+| `3.1` / `3.2` | `float`, the same pair (`EV_BATTERY_LEVEL`) |
+| `4.1` / `4.2` | `string`, the same pair (`INFO_VIN`) |
+| `5.1` / `5.2` | `bytes`, the same pair (`STORAGE_ENCRYPTION_BINDING_SEED`) |
+| `6.1` | an unknown property name answers with the `0` default |
+| `7.1` / `7.2` | `GetPropertyStatus` for a real property / for a mistyped name |
+
 ## How it matches the bridge
 
 `VhalSimple.vcdl` and [`source/VhalSimpleApi.hpp`](../../source/VhalSimpleApi.hpp)
@@ -57,9 +76,10 @@ and the call succeeds and is misread.
 | `queryFailed` | the bridge could not answer at all |
 
 `knownName` is independent of `exists`, so a known name this vehicle does not
-implement has `knownName` set and `exists` clear. Test `st.exists`, never "is
-anything set". Only the `valueType` codes are restated by hand in
-`VhalUtils.cin`; the flags are struct fields, so they cannot drift.
+implement has `knownName` set and `exists` clear. To ask whether the vehicle
+has a property, test `st.exists` alone: a non-zero `knownName` or `valueType`
+does not imply it. Only the `valueType` codes are restated by hand in
+`VhalUtils.cin`. The flags are struct fields, so they cannot drift.
 
 ## Running against a real device
 
@@ -140,12 +160,14 @@ a type mismatch. Two consequences worth knowing:
 
 ## Running it
 
+Run the commands below from this directory.
+
 1. Start a SIL Kit registry and the bridge (`--mock` works, and needs no Android
    device):
 
    ```sh
    sil-kit-registry --listen-uri silkit://localhost:8500 &
-   ./_build/Linux/relwithdebinfo/sil-kit-android-bridge --mock
+   ../../_build/Linux/relwithdebinfo/sil-kit-android-bridge --mock
    ```
 
    Against a real Android VHAL, get the socket with `./get_vhal_proxy_socket.sh`
@@ -172,7 +194,7 @@ a type mismatch. Two consequences worth knowing:
   uses `memcpy(byte dest[], bytes source)`. One consequence: byte payloads
   containing `0x00` are carried correctly, since nothing is NUL-terminated.
   Reading is confirmed end to end - `DE AD BE EF` renders in the CANoe trace
-  window, which also settles that `sil-adapter-builder` and SIL Kit SerDes agree
+  window, which also settles that CANoe and the bridge's SIL Kit SerDes agree
   on the wire format (a `uint32` length prefix then raw bytes, identical to
   `string`). The write direction is step `5.2` of `CheckAllPropertyTypes` and has
   not been run yet.
@@ -192,15 +214,16 @@ a type mismatch. Two consequences worth knowing:
   overload, since every sample on hand reads an `out bytes` parameter instead.
   That extrapolation is now confirmed: the test unit compiles and step `5.1`
   passes against both `--mock` and a live Cuttlefish VHAL.
-- The minimum CANoe SE version is not pinned here. The configuration files
-  declare their own schema versions (`venvironment.yaml` 4.0.0, the test unit and
-  test tree 2.0.0), which is the only version information this directory carries.
-  We have not verified which CANoe SE releases accept them -- if yours does not,
-  please open an issue and tell us the version.
+- Tested with CANoe SE 20.2.89 on Ubuntu 24.04. The minimum CANoe SE version is
+  not pinned: the configuration files declare their own schema versions
+  (`venvironment.yaml` 4.0.0, the test unit and test tree 2.0.0), and we have not
+  verified which older releases accept them -- if yours does not, please open an
+  issue and tell us the version.
 - `run_canoe_se.sh` assumes a Linux CANoe SE installation and `-A Linux64`.
-- The bridge must be running and connected to the registry before step 2; the
-  CAPL helpers use a 100 ms `testWaitForAnswer` (`VhalUtils.cin`), so an
-  unmatched RPC surfaces as a failed step rather than a hang.
+- The bridge must be running and connected to the registry before you run the
+  test bench (item 2 of [Running it](#running-it)); the CAPL helpers use a
+  100 ms `testWaitForAnswer` (`VhalUtils.cin`), so an unmatched RPC surfaces as
+  a failed step rather than a hang.
 - `CheckEvBatteryProperties` drives `EV_BATTERY_LEVEL` with raw magnitudes
   (10000 to 100000) rather than AOSP's documented unit for that property. It is a
   connectivity demonstration, not a model of realistic vehicle values.

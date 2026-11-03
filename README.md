@@ -73,7 +73,7 @@ Binaries land in `_build/<OS>/<preset>/`, e.g. `_build/Linux/relwithdebinfo/`.
 The presets are `debug`, `release` and `relwithdebinfo`; `debug` is Linux-only.
 On Windows, build from a Visual Studio developer command prompt.
 
-The primary target platform is Ubuntu; the build depends only on publicly
+The primary target platform is Ubuntu 24.04. The build depends only on publicly
 available packages. Windows is built and tested in CI as well.
 
 ## Quick start
