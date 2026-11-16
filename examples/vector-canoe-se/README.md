@@ -8,30 +8,28 @@ A CANoe Server Edition (CANoe SE) test configuration that drives
 surface the bridge exposes to any other participant.
 
 This example needs commercial Vector tooling (CANoe SE and its command line
-tools). Everything in the repository outside this directory builds and runs
-without it -- use `sil-kit-android-bridge --mock` and the `silkit-client` tool if
-you do not have CANoe.
+tools). It is tested with CANoe SE 20.2.89 on Ubuntu 24.04. Everything in the
+repository outside this directory builds and runs without it -- use
+`sil-kit-android-bridge --mock` and the `silkit-client` tool if you do not have
+CANoe.
 
 ## What is here
 
 | File | Role |
 |------|------|
 | `VhalSimple.vcdl` | The interface contract. Declares namespace `VhalSimple`, the `IVhalSimple` interface with the ten property methods plus `GetApiVersion` and `GetPropertyStatus`, and the object `properties`. |
-| `VhalUtils.cin` | CAPL helpers wrapping each method in an async call plus `testWaitForAnswer`: `VhalGetInt32` / `VhalSetInt32` and the same pair for `Int64`, `Float`, `String` and `Bytes`, plus `VhalGetApiVersion`, `VhalGetPropertyStatus` and the `VhalPropertyType` helper that unpacks its type nibble. |
-| `VhalTest.can` | Three CAPL test cases. `CheckEvBatteryProperties` drives `EV_BATTERY_LEVEL` through a ramp. `CheckAllPropertyTypes` checks the API version and then, for each of the five types, that the read answers (step `x.1`) and that a write round-trips (step `x.2`); step 7 then asks `GetPropertyStatus` which property exists and which accessor it needs; it asserts nothing about which values a property holds, so it passes against `--mock` and against a real device. `CheckMockSeedValues` asserts the exact `--mock` seed values and is therefore not in the default test tree. |
+| `VhalUtils.cin` | CAPL helpers wrapping each method in an async call plus `testWaitForAnswer`: `VhalGetInt32` / `VhalSetInt32` and the same pair for `Int64`, `Float`, `String` and `Bytes`, plus `VhalGetApiVersion`, `VhalGetPropertyStatus` and the `kVhalType*` constants for its `valueType`. |
+| `VhalTest.can` | Three CAPL test cases. `CheckEvBatteryProperties` drives `EV_BATTERY_LEVEL` through a ramp. `CheckAllPropertyTypes` checks the API version, a read and a write round trip for each of the five types, and `GetPropertyStatus`; it asserts no property values, so it passes against `--mock` and against a real device. `CheckMockSeedValues` asserts the exact `--mock` seed values and is therefore not in the default test tree. |
 | `venvironment.yaml` | Virtual environment: binds `VhalSimple.vcdl` and sets the SIL Kit participant name to `canoe-vhal-test`. |
 | `VhalTest.vtestunit.yaml` | Test unit: `VhalTest.can` plus the test tree. |
-| `VhalTest.vtesttree.yaml` | Test tree: the single CAPL test case to execute. |
+| `VhalTest.vtesttree.yaml` | Test tree: `CheckEvBatteryProperties` and `CheckAllPropertyTypes`. |
 | `run_canoe_se.sh` | Builds the environment and test unit, then runs CANoe SE against them. |
 | `get_vhal_proxy_socket.sh` | Prints the unix socket of a running `vhal_proxy_server`, for use as `--vhal-uri`. |
 
 ### Test steps
 
-A step number in this README, such as step `4.2`, is the step ID a test case
-writes into the CANoe test report (the first argument of `testStepPass` /
-`testStepFail` in `VhalTest.can`). The three test cases number their steps
-independently; unless a passage names another test case, a step number refers
-to `CheckAllPropertyTypes`:
+The step IDs `CheckAllPropertyTypes` writes into the CANoe test report (the
+first argument of `testStepPass` / `testStepFail` in `VhalTest.can`):
 
 | Step | `CheckAllPropertyTypes` checks |
 |------|--------------------------------|
@@ -83,20 +81,11 @@ does not imply it. Only the `valueType` codes are restated by hand in
 
 ## Running against a real device
 
-`CheckAllPropertyTypes` is written to pass against a live VHAL as well as
-`--mock`. It never asserts what a property *contains* - a real vehicle reports
-whatever it reports - only that each method family answers and that a write is
-either reflected on read-back or leaves the value untouched. That second case is
-reported as a pass with a note, because a static or sensor-backed property being
+`CheckAllPropertyTypes` passes against a live VHAL as well as `--mock`. It never
+asserts what a property *contains*, only that each method family answers and
+that a write is either reflected on read-back or leaves the value untouched. The
+second case passes with a note, because a static or sensor-backed property being
 read-only is a property of the vehicle, not a fault in the bridge.
-
-Two things to expect against real hardware that are not failures:
-
-- `INFO_VIN` and other `INFO_*` properties are static, so step `4.2` will usually
-  report "unchanged".
-- `STORAGE_ENCRYPTION_BINDING_SEED` is not implemented by every VHAL. The bridge
-  logs `Property ... not found, or the VHAL refused the read` and answers with an
-  empty value; step `5.2` reports "unsupported" rather than failing.
 
 Use `CheckMockSeedValues` (add it to `VhalTest.vtesttree.yaml`) only when the
 bridge is running with `--mock`.
@@ -105,7 +94,7 @@ bridge is running with `--mock`.
 
 `--mock` needs no Android device. It seeds every VhalSimple type with a
 distinctive value, so a wrong read looks wrong instead of looking like a
-plausible zero. `CheckAllPropertyTypes` asserts against exactly these:
+plausible zero. `CheckMockSeedValues` asserts one of them per type:
 
 | Type | Property | Seeded value |
 |------|----------|--------------|
@@ -132,19 +121,13 @@ add a property there and it is immediately reachable from CANoe.
 
 ### Running against --mock
 
-Against `--mock`, `GetPropertyStatus` reports every seeded property above as
-`exists | readable | writable | known name` plus its type, because the mock
-hands back everything it stores and accepts a write to any of it. A real VHAL
-reports whatever access its configuration table declares, so `EV_BATTERY_LEVEL`
-is typically read-only there. A known AOSP name that is not seeded answers
-`0x08` plus its type, and a name outside the AOSP table answers `0`.
-
-Two consequences for the shipped example specifically. `VhalMockClient` has no
-way to report a read-only or write-only property, so step `7.1` asserts only
-readability and prints writability - per-area and write-only access can be
-validated against hardware and nowhere else. And `VhalMockClient::GetPropertyInfo`
-cannot fail, so the negative "could not answer" branch of step `7.1` is
-unreachable under `--mock`; it exists for the device case.
+Against `--mock`, `GetPropertyStatus` reports every seeded property above with
+`exists`, `readable`, `writable` and `knownName` set plus its `valueType`,
+because the mock hands back everything it stores and accepts a write to any of
+it. A real VHAL reports whatever access its configuration table declares, so
+`EV_BATTERY_LEVEL` is typically read-only there. A known AOSP name that is not
+seeded answers only `knownName` and `valueType`, and a name outside the AOSP
+table answers with every field clear.
 
 **Use the method family that matches the AOSP type.** The mock declares each
 value with the type AOSP declares for that property id, exactly as a device would,
@@ -181,49 +164,8 @@ Run the commands below from this directory.
 
    This runs `environment-make` over `venvironment.yaml`, then `test-unit-make`
    over `VhalTest.vtestunit.yaml`, then `canoe-se` on the result, writing
-   everything to `_OUT/`. All three must be on `PATH`.
+   everything to `_OUT/`. All three must be on `PATH`. The script targets a
+   Linux CANoe SE installation (`-A Linux64`).
 
-## Caveats
-
-- **`bytes` in CAPL is a plain `byte` array, not a `char` array.** A vCDL `bytes`
-  parameter is passed to `CallAsync` as `byte value[]` - the same shape Vector's
-  own IoTEnablerBLE sample uses for `consumed method result write(string uuid,
-  bytes data);`. A `char` array does not compile ("types of parameters do not
-  match"), and neither does a `[]` suffix in the vCDL itself, so `uint8[]` and
-  `char[]` are both wrong there too. Reading a `bytes` result into a byte array
-  uses `memcpy(byte dest[], bytes source)`. One consequence: byte payloads
-  containing `0x00` are carried correctly, since nothing is NUL-terminated.
-  Reading is confirmed end to end - `DE AD BE EF` renders in the CANoe trace
-  window, which also settles that CANoe and the bridge's SIL Kit SerDes agree
-  on the wire format (a `uint32` length prefix then raw bytes, identical to
-  `string`). The write direction is step `5.2` of `CheckAllPropertyTypes` and has
-  not been run yet.
-- `VhalUtils.cin` and the vCDL compile as a test unit, and the
-  `GetPropertyStatus` wire format is verified against CANoe DE, but step `7` of
-  `CheckAllPropertyTypes` has not been *run*. It is also the likeliest to fail
-  first against a device: the bridge preloads the property configuration table
-  at startup, but that is best effort, and a VHAL with a large table could push
-  the first call past `testWaitForAnswer`'s 100 ms. If step `7.1` reports no
-  answer, raise `maxWait` before suspecting the contract.
-- The CAPL helpers copy the result into a caller-supplied buffer, so size it for
-  the properties you read. `VhalGetBytes` also returns the length, taken from
-  `elcount()` on the result, which is how Vector's own samples bound a `bytes`
-  read; `VhalGetString` uses `strncpy` and does not.
-- `memcpy(dest, cc.Result)` and `elcount(cc.Result)` on a `bytes` *return* value
-  were extrapolated from the documented `memcpy(byte dest[], bytes source)`
-  overload, since every sample on hand reads an `out bytes` parameter instead.
-  That extrapolation is now confirmed: the test unit compiles and step `5.1`
-  passes against both `--mock` and a live Cuttlefish VHAL.
-- Tested with CANoe SE 20.2.89 on Ubuntu 24.04. The minimum CANoe SE version is
-  not pinned: the configuration files declare their own schema versions
-  (`venvironment.yaml` 4.0.0, the test unit and test tree 2.0.0), and we have not
-  verified which older releases accept them -- if yours does not, please open an
-  issue and tell us the version.
-- `run_canoe_se.sh` assumes a Linux CANoe SE installation and `-A Linux64`.
-- The bridge must be running and connected to the registry before you run the
-  test bench (item 2 of [Running it](#running-it)); the CAPL helpers use a
-  100 ms `testWaitForAnswer` (`VhalUtils.cin`), so an unmatched RPC surfaces as
-  a failed step rather than a hang.
-- `CheckEvBatteryProperties` drives `EV_BATTERY_LEVEL` with raw magnitudes
-  (10000 to 100000) rather than AOSP's documented unit for that property. It is a
-  connectivity demonstration, not a model of realistic vehicle values.
+Each CAPL helper waits up to `maxWait` (100 ms, in `VhalUtils.cin`) for an
+answer, so a call the bridge does not answer fails its step instead of hanging.

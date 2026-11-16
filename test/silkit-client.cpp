@@ -160,7 +160,7 @@ auto WireTypeFor(const std::string& name, const std::string& value) -> WireType
 // For a read (no value hint) the family comes from the property table only.
 auto WireTypeFor(const std::string& name) -> WireType { return WireTypeFor(name, std::string{}); }
 
-// The accessor a GetPropertyStatus type nibble names, for printing.
+// The accessor a GetPropertyStatus valueType names, for printing.
 auto TypeCodeName(VhalSimpleApi::TypeCode type) -> const char*
 {
     switch (type)

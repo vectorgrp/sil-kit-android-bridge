@@ -2,6 +2,9 @@
 
 ## Prerequisites
 
+Ubuntu 24.04 is the primary platform; Windows is built and tested in CI as
+well. Both need SIL Kit 5 (CI uses 5.0.6).
+
 ### Linux (Ubuntu)
 
 | Dependency | How to install |
@@ -45,7 +48,7 @@ export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 These are environment variables rather than Conan configuration because the
 Conan home is inside `_build/`, and `rm -rf _build` would delete that
-configuration. Verified on Linux and WSL; Windows is not covered.
+configuration.
 
 ## Build
 
@@ -61,8 +64,8 @@ Presets: `relwithdebinfo`, `release`, and `debug` (Linux only, see
 
 `SKAB_STATIC_DEPS=ON` (the default) resolves gRPC, Protobuf and GoogleTest with
 Conan 2 and links them statically, so the binaries run on machines other than
-the build host. A dynamically linked build does not: the 0.4.x Linux archive,
-built on Ubuntu 22.04, failed to start on 24.04.
+the build host. A dynamically linked build depends on the build host's shared
+libraries.
 
 `-DSKAB_STATIC_DEPS=OFF` uses the distribution's packages instead, which link
 dynamically only. Install them first:

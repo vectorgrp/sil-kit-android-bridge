@@ -199,15 +199,10 @@ export testcase CheckAllPropertyTypes()
     }
 
     // ---- introspection: telling a missing property from a mistyped one ----
-    // Backend-agnostic on purpose. Against --mock EV_BATTERY_LEVEL is
-    // read/write, against a real VHAL it is read-only, so the access bits are
-    // reported rather than asserted; what must hold either way is that the
-    // property is there and that the bridge recommends the float accessor.
-    // Readable and known-name are asserted, not just printed: a bridge that
-    // reported no access for every property - the exact failure the per-area
-    // access handling exists to prevent - would otherwise pass this step.
-    // Writability is only reported, because EV_BATTERY_LEVEL is read/write
-    // against --mock and read-only against a real VHAL.
+    // Backend-agnostic on purpose. EV_BATTERY_LEVEL is read/write against
+    // --mock and read-only against a real VHAL, so writability is reported, not
+    // asserted. Existence, readability, the known name and the float accessor
+    // must hold either way.
     status = VhalGetPropertyStatus("EV_BATTERY_LEVEL", propStatus);
     if (status > 0 && propStatus.exists && propStatus.readable && propStatus.knownName
         && propStatus.valueType == kVhalTypeFloat && !propStatus.queryFailed) {

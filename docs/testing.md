@@ -83,11 +83,3 @@ Two pitfalls:
 - A file that includes both `<grpcpp/grpcpp.h>` and the VHAL protos needs
   `#undef TRY_AGAIN` and `#undef ACCESS_DENIED`: winsock2 defines both as
   macros, and both are `StatusCode` values.
-
-## Not covered
-
-- `StartPropertyValuesStream` blocks on `std::cout` with no way to cancel it.
-  The push direction is not implemented yet anyway.
-- The CANoe example (`examples/vector-canoe-se/`) needs commercial tooling and
-  is tested by hand. `Test_VhalSimpleApi` pins the byte layout it depends on.
-- Real hardware. The fake VHAL reproduces the protocol, not a device.

@@ -53,10 +53,6 @@ merged.
 ## Submitting a change
 
 1. Fork the repository and create a topic branch. Keep the change focused.
-2. Build and test (prerequisites are in [docs/building.md](docs/building.md)):
-   ```sh
-   cmake --preset relwithdebinfo
-   cmake --build --preset relwithdebinfo
-   ctest --preset relwithdebinfo --output-on-failure
-   ```
+2. Build and run the tests: [docs/building.md](docs/building.md),
+   [docs/testing.md](docs/testing.md).
 3. Open a pull request that explains the change and links its issue.

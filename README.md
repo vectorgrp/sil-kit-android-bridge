@@ -6,77 +6,30 @@
 co-simulation between Android Automotive environments and CANoe/SIL Kit-based
 test benches.
 
+The bridge joins the simulation as a SIL Kit participant and serves the
+[VhalSimple API](docs/vhal-simple-api.md): get and set methods per value type
+(`int32`, `int64`, `float`, `string`, `bytes`) that address vehicle properties
+by AOSP name, such as `EV_BATTERY_LEVEL`, and forward each call to the VHAL.
+
 > [!WARNING]
 > **Public preview - we want your feedback.**
 >
 > The [VhalSimple API](docs/vhal-simple-api.md) is complete for every type the
 > bridge models and covered by tests, so it is something you can build against.
-> The project around it is early: not hardened, not security reviewed, not run
-> in production. While it is on `0.x` the CLI and the RPC surface may change
-> without notice. Do not expose it to an untrusted network.
+> The project around it is early: not hardened and not security reviewed. While
+> it is on `0.x` the CLI and the RPC surface may change without notice. Do not
+> expose it to an untrusted network.
 >
-> Today it is **polling only** (no change notification), the CANoe surface is
-> **scalar get/set only** by design, and **no automated test drives a real
-> device** - hardware is validated by hand against Cuttlefish, so expect rough
-> edges there.
+> Today it is **polling only** (no change notification), and the CANoe surface
+> is **scalar get/set only** by design.
 >
 > **Please [open an issue](https://github.com/vectorgrp/sil-kit-android-bridge/issues)**:
 > bug reports, "this does not build on my machine", missing property types, and
 > use cases we have not thought of are all equally welcome.
 
-## The VhalSimple API
-
-The bridge joins a SIL Kit simulation as a participant (default name
-`VhalBridge`) and serves the **VhalSimple API**: a small, versioned,
-request/response surface for reading and writing vehicle properties, forwarding
-each call to the VHAL.
-
-| Type | Read | Write |
-|------|------|-------|
-| `int32` | `int32 GetInt32(string name)` | `void SetInt32(string name, int32 value)` |
-| `int64` | `int64 GetInt64(string name)` | `void SetInt64(string name, int64 value)` |
-| `float` | `float GetFloat(string name)` | `void SetFloat(string name, float value)` |
-| `string` | `string GetString(string name)` | `void SetString(string name, string value)` |
-| `bytes` | `bytes GetBytes(string name)` | `void SetBytes(string name, bytes value)` |
-
-Plus `int32 GetApiVersion()`, so a CANoe configuration can check it speaks the
-same dialect, and `GetPropertyStatus`, which answers a small struct saying
-whether a property exists, what access the VHAL declares, and which accessor to
-use.
-
-Properties are addressed by their AOSP name (`EV_BATTERY_LEVEL`,
-`RANGE_REMAINING`, ...). AOSP `BOOLEAN` properties travel over the `int32`
-methods as 0/1.
-
-Full reference, including the `GetPropertyStatus` struct and what is out of
-scope: **[docs/vhal-simple-api.md](docs/vhal-simple-api.md)**.
-
-## Build
-
-Prerequisites:
-
-- a C++17 compiler: GCC on Ubuntu, Visual Studio 2019 or newer on Windows
-- CMake >= 3.21 and Ninja
-- [uv](https://docs.astral.sh/uv/), which provisions the Conan 2 client
-- [SIL Kit](https://github.com/vectorgrp/sil-kit/releases) 5 (CI uses 5.0.6)
-
-gRPC, Protobuf and GoogleTest are fetched by Conan at configure time. Install
-commands, and what to set behind a TLS-inspecting corporate proxy, are in
-[docs/building.md](docs/building.md#prerequisites).
-
-```sh
-cmake --preset relwithdebinfo
-cmake --build --preset relwithdebinfo
-```
-
-Binaries land in `_build/<OS>/<preset>/`, e.g. `_build/Linux/relwithdebinfo/`.
-The presets are `debug`, `release` and `relwithdebinfo`; `debug` is Linux-only.
-On Windows, build from a Visual Studio developer command prompt.
-
-The primary target platform is Ubuntu 24.04. The build depends only on publicly
-available packages. Windows is built and tested in CI as well.
-
 ## Quick start
+
+Build the bridge first, see [docs/building.md](docs/building.md).
 
 The fastest way to see the bridge work needs no Android device at all: `--mock`
 serves an in-memory VHAL seeded with one property per type. Each value is
@@ -160,16 +113,6 @@ bridge because `-V` is already `--vhal-uri`.)
 
 `--log` and `--configuration` are mutually exclusive: the configuration file
 carries its own logging setup.
-
-## Testing
-
-```sh
-ctest --preset relwithdebinfo --output-on-failure
-```
-
-The suite is self-contained: it starts its own SIL Kit registry and its own fake
-VHAL, so it needs neither a running `sil-kit-registry` nor an Android device.
-What each target covers is in [docs/testing.md](docs/testing.md).
 
 ## Examples
 

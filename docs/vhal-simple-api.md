@@ -74,10 +74,8 @@ When it is set, the other fields carry only what was answerable offline and
 
 On the wire this is six bytes, one per field in declaration order. SIL Kit
 SerDes encodes `bool` as an aligned 0/1 byte and `int8` as one byte, and struct
-framing is zero-width. Verified against CANoe DE: the bridge emits
-`01 01 01 01 03 00` for a seeded float property and `00 00 00 00 00 00` for an
-unknown name, and the generated consumer decodes both into the right fields.
-`Test_VhalSimpleApi` pins those two vectors.
+framing is zero-width. For example, the bridge emits `01 01 01 01 03 00` for a
+seeded float property and `00 00 00 00 00 00` for an unknown name.
 
 Three limits worth knowing before relying on it:
 
@@ -96,21 +94,15 @@ Three limits worth knowing before relying on it:
 
 Against `--mock` every seeded property reports read/write, because that is what
 the mock does; see
-[the mock caveat](../examples/vector-canoe-se/README.md#running-against---mock).
+[the CANoe example](../examples/vector-canoe-se/README.md#running-against---mock).
 
 ## Scope
 
 The API covers **every type the bridge models internally**. AOSP's `INT32_VEC`,
 `INT64_VEC`, `FLOAT_VEC` and `MIXED` properties are out of scope by design:
 `CarProperty` has no representation for them, so supporting them is a data-model
-change rather than a method addition. That is the line, and it is why the surface
-is called *simple* rather than *incomplete*.
-
-For the record, the CANoe side would not be the obstacle if we did add them -
-vCDL has `list<int32>` for a dynamic sequence and `array<uint8, N>` for a fixed
-one (a `typedef` is the attested way to use a sequence in return position). The
-blocker is `CarProperty::Value`. If you need vector properties, say so in an
-issue and that is the conversation to have.
+change rather than a method addition. If you need vector properties, open an
+issue.
 
 The API is also request/response only - there is no change notification.
 
