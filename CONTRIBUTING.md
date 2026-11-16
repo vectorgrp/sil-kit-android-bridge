@@ -48,7 +48,8 @@ merged.
   // SPDX-License-Identifier: MIT
   ```
 - Adding or removing a dependency means updating
-  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `conan.lock` (see
+  [docs/building.md](docs/building.md#updating-conanlock)).
 
 ## Submitting a change
 

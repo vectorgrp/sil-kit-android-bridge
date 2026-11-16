@@ -32,6 +32,8 @@
 #   SKAB_CONAN_EXECUTABLE     - skip the bootstrap and use this client instead.
 #   SKAB_CONAN_SETTINGS       - extra `--settings key=value` arguments.
 #   SKAB_CONAN_BUILD_POLICY  - --build policy; 'never' fails instead of building
+#   SKAB_CONAN_LOCKFILE      - lockfile pinning the dependency graph; empty
+#                          resolves the version ranges afresh.
 #   SKAB_ALLOW_WINDOWS_DEBUG - allow a Debug configure despite the hour-long source
 #                          build it implies (see the guard in fetch_conan()).
 #
@@ -90,6 +92,13 @@ set(SKAB_CONAN_SETTINGS "" CACHE STRING
     "Extra Conan settings as a list of key=value (e.g. compiler.version=194)")
 set(SKAB_CONAN_BUILD_POLICY "missing" CACHE STRING
     "Conan --build policy. 'never' turns a cache miss into an immediate error instead of an hour-long source build, which is what CI wants: a drift in ConanCenter's published binaries is then reported rather than absorbed.")
+# The recipes on ConanCenter require version ranges (zlib/[>=1.2.11 <2], ...).
+# Resolved afresh, a new release of any of them changes the package IDs of
+# everything above it, and ConanCenter does not rebuild grpc for that, so the
+# binaries go missing. The lockfile pins every version and recipe revision. A
+# SKAB_GRPC_CONAN_REFERENCE it does not contain needs this set empty.
+set(SKAB_CONAN_LOCKFILE "${CMAKE_SOURCE_DIR}/conan.lock" CACHE FILEPATH
+    "Conan lockfile pinning the dependency graph (empty: resolve version ranges afresh)")
 
 option(SKAB_ALLOW_WINDOWS_DEBUG
     "Permit a Debug configure on Windows, compiling every dependency from source" OFF)
@@ -305,6 +314,9 @@ function(fetch_conan)
 
     # COMMAND_ECHO because this call can take a long time on an unusual compiler
     # with no matching prebuilt binaries, and silence there reads as a hang.
+    #
+    # --lockfile is passed even when empty: Conan uses a conan.lock beside
+    # conanfile.py on its own, and an empty --lockfile= is what turns that off.
     execute_process(
         COMMAND ${CMAKE_COMMAND} -E env
             "CONAN_HOME=${SKAB_CONAN_HOME_DIR}"
@@ -313,6 +325,7 @@ function(fetch_conan)
             "${_conan_exe}" install "${CMAKE_SOURCE_DIR}"
             --output-folder "${_generators_dir}"
             --build=${SKAB_CONAN_BUILD_POLICY}
+            "--lockfile=${SKAB_CONAN_LOCKFILE}"
             --deployer "${_SKAB_FETCH_CONAN_DIR}/conan/licenses_deployer.py"
             --deployer-folder "${SKAB_CONAN_LICENSE_DIR}"
             ${_profile_args}

@@ -73,6 +73,8 @@ dynamically only. Install them first:
 
 How the build handles Conan:
 
+- [conan.lock](../conan.lock) pins every package version and recipe revision, so
+  a new release on ConanCenter does not change what the build resolves.
 - It installs its own Conan 2 client with `uv` into `_build/<OS>/conan-venv/`
   and runs `conan install` during configure. A Conan on `PATH` is ignored, since
   it is often Conan 1.x, which cannot read this `conanfile.py`. An existing
@@ -105,7 +107,27 @@ Cache variables (see [cmake/fetch_conan.cmake](../cmake/fetch_conan.cmake)):
 | `SKAB_CONAN_HOME_DIR` | Conan home (default `_build/<OS>/conan2`) |
 | `SKAB_CONAN_EXECUTABLE` | use this Conan 2 client instead of installing one |
 | `SKAB_CONAN_BUILD_POLICY` | Conan `--build` policy. CI uses `never`, so a missing binary fails at once instead of starting an hour-long source build |
+| `SKAB_CONAN_LOCKFILE` | lockfile for `conan install` (default `conan.lock`). Set it empty to resolve the version ranges afresh, e.g. for a `SKAB_GRPC_CONAN_REFERENCE` the lockfile does not contain |
 | `SKAB_ALLOW_WINDOWS_DEBUG` | allow a Debug configure on Windows (see below) |
+
+### Updating conan.lock
+
+After changing a requirement in `conanfile.py`, regenerate the lockfile for both
+platforms from a configured Linux tree:
+
+```sh
+export CONAN_HOME=$PWD/_build/Linux/conan2
+conan=_build/Linux/conan-venv/bin/conan
+$conan lock create . --lockfile= --update --lockfile-out=conan.lock \
+    -s build_type=Release
+$conan lock create . --lockfile=conan.lock --lockfile-partial --update \
+    --lockfile-out=conan.lock \
+    -s:a os=Windows -s:a compiler=msvc -s:a compiler.version=194 \
+    -s:a compiler.runtime=dynamic -s:a compiler.cppstd=14 -s:a build_type=Release
+```
+
+CI configures with `SKAB_CONAN_BUILD_POLICY=never`, so a version ConanCenter
+publishes no binary for fails there within seconds.
 
 ## Debug builds
 
