@@ -15,7 +15,7 @@
 # the build host's libprotobuf/libgrpc++ soversions and starts nowhere else.
 # OFF uses the system packages, for which apt ships no static archives.
 #
-# Passing a CMAKE_TOOLCHAIN_FILE (vcpkg, a corporate toolchain, ...) skips the
+# Passing a CMAKE_TOOLCHAIN_FILE (vcpkg, a custom toolchain, ...) skips the
 # Conan bootstrap entirely: the toolchain is then responsible for making the
 # packages findable, and the config-mode branch below picks them up unchanged.
 

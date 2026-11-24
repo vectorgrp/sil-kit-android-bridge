@@ -59,7 +59,7 @@ TEST(VhalMockClient, SeededValuesUseTheAospDeclaredType)
     const auto asString = client.GetProperty("INFO_VIN"); // AOSP: STRING
     ASSERT_TRUE(asString.has_value());
     ASSERT_TRUE(asString->Holds<std::string>());
-    EXPECT_EQ(asString->Get<std::string>().value(), "WVWZZZ1JZXW000001");
+    EXPECT_EQ(asString->Get<std::string>().value(), "SILKITVHALBRIDGE1");
 
     const auto asBytes = client.GetProperty("STORAGE_ENCRYPTION_BINDING_SEED"); // AOSP: BYTES
     ASSERT_TRUE(asBytes.has_value());

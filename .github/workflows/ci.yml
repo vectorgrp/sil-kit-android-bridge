@@ -61,7 +61,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: _build/Linux/conan2/p
-          key: conan2-ubuntu-24.04-${{ hashFiles('conanfile.py', 'cmake/conan/compatibility.py') }}
+          key: conan2-ubuntu-24.04-${{ hashFiles('conanfile.py', 'conan.lock', 'cmake/conan/compatibility.py') }}
           restore-keys: |
             conan2-ubuntu-24.04-
 
@@ -144,13 +144,12 @@ jobs:
 
       # The Conan home lives inside the build tree (see cmake/fetch_conan.cmake),
       # so nothing outside the workspace is written. Keep the package cache
-      # between runs: a cold cache means downloading roughly 150 MB, and a
-      # compiler with no published binaries would build from source.
+      # between runs: a cold cache means downloading roughly 150 MB.
       - name: Cache Conan packages
         uses: actions/cache@v6
         with:
           path: _build/Windows/conan2/p
-          key: conan2-windows-2022-${{ hashFiles('conanfile.py', 'cmake/conan/compatibility.py') }}
+          key: conan2-windows-2022-${{ hashFiles('conanfile.py', 'conan.lock', 'cmake/conan/compatibility.py') }}
           restore-keys: |
             conan2-windows-2022-
 
@@ -171,13 +170,13 @@ jobs:
 
       # One cmd step so the environment set up by vcvars64.bat survives across the
       # cmake invocations. && chaining is required: shell cmd only reports the exit
-      # code of the last command.
+      # code of the last command. --build=never as on Linux.
       - name: Configure, build, test and package
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VSPATH=%%i
           call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
-          cmake --preset relwithdebinfo -DSilKit_DIR="%SilKit_DIR%" && ^
+          cmake --preset relwithdebinfo -DSilKit_DIR="%SilKit_DIR%" -DSKAB_CONAN_BUILD_POLICY=never && ^
           cmake --build --preset relwithdebinfo && ^
           ctest --preset relwithdebinfo --output-on-failure && ^
           cmake --build --preset relwithdebinfo --target package
@@ -220,10 +219,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          # The release can already exist: publishing one in the web UI creates
-          # the tag that starts this workflow. New ones are left as drafts so the
-          # archives are attached before anyone publishes - under immutable
-          # releases publishing seals the assets and reserves the tag forever.
+          # The draft already exists when this job is re-run. New ones are left
+          # as drafts so the archives are attached before anyone publishes -
+          # under immutable releases publishing seals the assets and reserves
+          # the tag forever.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
           else

@@ -65,7 +65,7 @@ protected:
         Server().SeedInt32(VehicleProperty_GetIdByName(kInt32Name), 2026);
         Server().SeedInt64(VehicleProperty_GetIdByName(kInt64Name), 1767225600000LL);
         Server().SeedFloat(VehicleProperty_GetIdByName(kFloatName), 88.5f);
-        Server().SeedString(VehicleProperty_GetIdByName(kStringName), "WVWZZZ1JZXW000001");
+        Server().SeedString(VehicleProperty_GetIdByName(kStringName), "SILKITVHALBRIDGE1");
         Server().SeedBytes(VehicleProperty_GetIdByName(kBytesName), kSeed);
 
         // Access has to be declared before Init: the adapter preloads the
@@ -157,7 +157,7 @@ TEST_F(BridgeGrpcTest, ReadsEachTypeThroughTheWholeChain)
 
     const auto str = canoe_->Call(getString_, ToSpan(test::GetReq(kStringName)));
     ASSERT_EQ(str.status, Rpc::RpcCallStatus::Success);
-    EXPECT_EQ(test::ParseString(str.data), "WVWZZZ1JZXW000001");
+    EXPECT_EQ(test::ParseString(str.data), "SILKITVHALBRIDGE1");
 
     const auto bytes = canoe_->Call(getBytes_, ToSpan(test::GetReq(kBytesName)));
     ASSERT_EQ(bytes.status, Rpc::RpcCallStatus::Success);

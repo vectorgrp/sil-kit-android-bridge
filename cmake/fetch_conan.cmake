@@ -7,7 +7,7 @@
 # CMAKE_PREFIX_PATH so the ordinary find_package() calls in cmake/gRPC.cmake and
 # cmake/gtest.cmake resolve them.
 #
-# The Conan client on PATH is deliberately NOT used. Corporate machines commonly
+# The Conan client on PATH is deliberately NOT used. Many machines
 # have a system-wide Conan 1.x installation, which cannot read the Conan 2
 # conanfile.py in this repository. Bootstrapping into ${SKAB_CONAN_VENV_DIR} keeps the
 # build self-contained and leaves an existing Conan 1 setup untouched: Conan 1
@@ -22,8 +22,8 @@
 # SKAB_STATIC_DEPS is OFF or a CMAKE_TOOLCHAIN_FILE was supplied.
 #
 # Cache variables:
-#   SKAB_GRPC_CONAN_REFERENCE - full Conan reference for gRPC, e.g. to select an
-#                          internal Artifactory channel instead of ConanCenter.
+#   SKAB_GRPC_CONAN_REFERENCE - full Conan reference for gRPC, e.g. to select a
+#                          different remote or channel instead of ConanCenter.
 #   SKAB_CONAN_PROFILE        - Conan 2 profile name for the host and build context.
 #                          Empty uses the 'default' profile, which is created by
 #                          `conan profile detect` if it does not exist yet.
@@ -32,6 +32,8 @@
 #   SKAB_CONAN_EXECUTABLE     - skip the bootstrap and use this client instead.
 #   SKAB_CONAN_SETTINGS       - extra `--settings key=value` arguments.
 #   SKAB_CONAN_BUILD_POLICY  - --build policy; 'never' fails instead of building
+#   SKAB_CONAN_LOCKFILE      - lockfile pinning the dependency graph; empty
+#                          resolves the version ranges afresh.
 #   SKAB_ALLOW_WINDOWS_DEBUG - allow a Debug configure despite the hour-long source
 #                          build it implies (see the guard in fetch_conan()).
 #
@@ -90,6 +92,13 @@ set(SKAB_CONAN_SETTINGS "" CACHE STRING
     "Extra Conan settings as a list of key=value (e.g. compiler.version=194)")
 set(SKAB_CONAN_BUILD_POLICY "missing" CACHE STRING
     "Conan --build policy. 'never' turns a cache miss into an immediate error instead of an hour-long source build, which is what CI wants: a drift in ConanCenter's published binaries is then reported rather than absorbed.")
+# The recipes on ConanCenter require version ranges (zlib/[>=1.2.11 <2], ...).
+# Resolved afresh, a new release of any of them changes the package IDs of
+# everything above it, and ConanCenter does not rebuild grpc for that, so the
+# binaries go missing. The lockfile pins every version and recipe revision. A
+# SKAB_GRPC_CONAN_REFERENCE it does not contain needs this set empty.
+set(SKAB_CONAN_LOCKFILE "${CMAKE_SOURCE_DIR}/conan.lock" CACHE FILEPATH
+    "Conan lockfile pinning the dependency graph (empty: resolve version ranges afresh)")
 
 option(SKAB_ALLOW_WINDOWS_DEBUG
     "Permit a Debug configure on Windows, compiling every dependency from source" OFF)
@@ -141,7 +150,7 @@ function(_skab_provision_conan out_var)
             message(FATAL_ERROR
                 "uv was not found on PATH. It is used to provision a Conan 2 client into "
                 "'${SKAB_CONAN_VENV_DIR}'. Install uv (https://docs.astral.sh/uv/), or point "
-                "-DCONAN_EXECUTABLE=<path> at an existing Conan 2 client.")
+                "-DSKAB_CONAN_EXECUTABLE=<path> at an existing Conan 2 client.")
         endif()
 
         if(NOT EXISTS "${_venv_python}")
@@ -162,7 +171,8 @@ function(_skab_provision_conan out_var)
             RESULT_VARIABLE _res
         )
         if(NOT _res EQUAL 0)
-            message(FATAL_ERROR "uv pip install '${SKAB_CONAN_REQUIREMENT}' failed (exit ${_res}).")
+            message(FATAL_ERROR "uv pip install '${SKAB_CONAN_REQUIREMENT}' failed (exit ${_res}). "
+                "On a certificate error, see 'Behind a TLS-inspecting proxy' in docs/building.md.")
         endif()
     endif()
 
@@ -304,6 +314,9 @@ function(fetch_conan)
 
     # COMMAND_ECHO because this call can take a long time on an unusual compiler
     # with no matching prebuilt binaries, and silence there reads as a hang.
+    #
+    # --lockfile is passed even when empty: Conan uses a conan.lock beside
+    # conanfile.py on its own, and an empty --lockfile= is what turns that off.
     execute_process(
         COMMAND ${CMAKE_COMMAND} -E env
             "CONAN_HOME=${SKAB_CONAN_HOME_DIR}"
@@ -312,6 +325,7 @@ function(fetch_conan)
             "${_conan_exe}" install "${CMAKE_SOURCE_DIR}"
             --output-folder "${_generators_dir}"
             --build=${SKAB_CONAN_BUILD_POLICY}
+            "--lockfile=${SKAB_CONAN_LOCKFILE}"
             --deployer "${_SKAB_FETCH_CONAN_DIR}/conan/licenses_deployer.py"
             --deployer-folder "${SKAB_CONAN_LICENSE_DIR}"
             ${_profile_args}
@@ -323,7 +337,8 @@ function(fetch_conan)
     if(NOT _res EQUAL 0)
         message(FATAL_ERROR "conan install failed (exit ${_res}). "
             "Set SKAB_GRPC_CONAN_REFERENCE / SKAB_CONAN_PROFILE (e.g. via CMakeUserPresets.json) "
-            "to point at a Conan remote that provides the gRPC package.")
+            "to point at a Conan remote that provides the gRPC package. On an SSL error, see "
+            "'Behind a TLS-inspecting proxy' in docs/building.md.")
     endif()
 
     list(PREPEND CMAKE_PREFIX_PATH "${_generators_dir}")

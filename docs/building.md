@@ -1,10 +1,9 @@
 # Building, packaging and releasing
 
-The short version is in the [README](../README.md#build). This covers what has
-to be installed first, why the build provisions its own Conan, and the
-maintainer procedures.
-
 ## Prerequisites
+
+Ubuntu 24.04 is the primary platform; Windows is built and tested in CI as
+well. Both need SIL Kit 5 (CI uses 5.0.6).
 
 ### Linux (Ubuntu)
 
@@ -12,17 +11,14 @@ maintainer procedures.
 |------------|----------------|
 | **SIL Kit** | `sudo dpkg -i libsilkit5_<version>-1ubuntu1_amd64.deb libsilkit-dev_<version>-1ubuntu1_amd64.deb silkit-utils_<version>-1ubuntu1_amd64.deb` from [GitHub Releases](https://github.com/vectorgrp/sil-kit/releases) |
 | **gRPC + Protobuf + GTest** | fetched automatically with Conan 2 (see below) |
-| **CMake** | >= 3.21 |
-| **uv** | [astral.sh/uv](https://docs.astral.sh/uv/) |
+| **Compiler + Ninja** | `sudo apt install build-essential ninja-build` |
+| **CMake** | >= 3.21, `sudo apt install cmake` |
+| **uv** | `pipx install uv`, or see [astral.sh/uv](https://docs.astral.sh/uv/) |
+| **dpkg-dev** | optional, `sudo apt install dpkg-dev`. Without it the `.deb` from the `package` target declares no runtime dependencies (`dpkg-shlibdeps`) |
 
-Do **not** install `protobuf-compiler` or `protobuf-compiler-grpc`: Conan's
-build modules find them over `PATH` and would generate stubs for a different
-version than the library being linked. `cmake/gRPC.cmake` re-points both and
-logs when it does, but not installing them removes the ambiguity.
-
-`-DSKAB_STATIC_DEPS=OFF` uses the system packages instead, and then you do need
-them: `sudo apt install libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc
-libgtest-dev libgmock-dev`.
+Do **not** install `protobuf-compiler` or `protobuf-compiler-grpc`. Conan's
+build modules find them on `PATH` and would generate code for the wrong
+version. `cmake/gRPC.cmake` works around it and logs when it does.
 
 ### Windows
 
@@ -34,93 +30,119 @@ libgtest-dev libgmock-dev`.
 | **CMake** | >= 3.21 |
 | **uv** | [astral.sh/uv](https://docs.astral.sh/uv/) |
 
-Run the build from a Visual Studio developer command prompt (or after
-`vcvars64.bat`) so that the compiler and Ninja are on `PATH`.
+Build from a Visual Studio developer command prompt (or after `vcvars64.bat`),
+so the compiler and Ninja are on `PATH`.
 
-## Conan
+### Behind a TLS-inspecting proxy
 
-`SKAB_STATIC_DEPS` is `ON` by default and is what makes the released binaries
-runnable on a machine other than the one that built them: gRPC, Protobuf and
-GoogleTest are resolved with Conan and linked in. A dynamically linked build
-names the build host's `libprotobuf` / `libgrpc++` soversions in `DT_NEEDED` and
-starts nowhere else - the 0.4.x Linux archive was built on Ubuntu 22.04 and
-failed to start on 24.04.
+Configure fails with `invalid peer certificate: UnknownIssuer` from
+`uv pip install`, or with an SSL error from `conan install`. Neither tool uses
+the system certificate store by default: uv has its own bundled roots, Conan
+uses the `certifi` bundle. With the corporate root CA in the system store
+(`update-ca-certificates`), point both at it:
 
-`OFF` falls back to the distribution's packages, for which apt ships no static
-archives, so that path can only link dynamically.
+```sh
+export UV_SYSTEM_CERTS=1
+export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+```
 
-The build provisions a Conan 2 client into `_build/<OS>/conan-venv/` using `uv`,
-and runs `conan install` during CMake configure.
-A Conan client that happens to be on `PATH` is deliberately not used: many
-machines have a system-wide Conan **1.x**, which cannot read this repository's
-Conan 2 `conanfile.py`. Conan 1 and Conan 2 share nothing (`~/.conan` plus
-`CONAN_USER_HOME` versus `~/.conan2` plus `CONAN_HOME`), so an existing Conan 1
-setup is left untouched.
+These are environment variables rather than Conan configuration because the
+Conan home is inside `_build/`, and `rm -rf _build` would delete that
+configuration.
 
-Both the client and the Conan package cache live under `_build/`, so a build
-creates no state anywhere else: nothing for two accounts on a shared machine to
-collide over, and `rm -rf _build` is a complete reset. The cost is that each
-worktree keeps its own package cache; point `SKAB_CONAN_HOME_DIR` somewhere shared if
-you would rather trade that back.
+## Build
 
-Relevant cache variables (see [cmake/fetch_conan.cmake](../cmake/fetch_conan.cmake)):
+```sh
+cmake --preset relwithdebinfo
+cmake --build --preset relwithdebinfo
+```
+
+Presets: `relwithdebinfo`, `release`, and `debug` (Linux only, see
+[Debug builds](#debug-builds)). Output goes to `_build/<OS>/<preset>/`.
+
+## Dependencies (Conan)
+
+`SKAB_STATIC_DEPS=ON` (the default) resolves gRPC, Protobuf and GoogleTest with
+Conan 2 and links them statically, so the binaries run on machines other than
+the build host. A dynamically linked build depends on the build host's shared
+libraries.
+
+`-DSKAB_STATIC_DEPS=OFF` uses the distribution's packages instead, which link
+dynamically only. Install them first:
+`sudo apt install libgrpc++-dev libprotobuf-dev protobuf-compiler-grpc libgtest-dev libgmock-dev`.
+
+How the build handles Conan:
+
+- [conan.lock](../conan.lock) pins every package version and recipe revision, so
+  a new release on ConanCenter does not change what the build resolves.
+- It installs its own Conan 2 client with `uv` into `_build/<OS>/conan-venv/`
+  and runs `conan install` during configure. A Conan on `PATH` is ignored, since
+  it is often Conan 1.x, which cannot read this `conanfile.py`. An existing
+  Conan 1 setup is left alone.
+- The Conan home is `_build/<OS>/conan2/`, so nothing is written outside
+  `_build/`, and `rm -rf _build` is a full reset. Each worktree gets its own
+  package cache; set `SKAB_CONAN_HOME_DIR` to share one.
+- Both directories are per host OS, because the home stores the detected
+  compiler profile. Without that, a WSL configure would pick up the Windows
+  profile.
+- ConanCenter publishes Windows binaries for msvc 194 (Release, dynamic runtime)
+  only, while Visual Studio 2026 is msvc 195.
+  [cmake/conan/compatibility.py](../cmake/conan/compatibility.py) lets 195 reuse
+  the 194 and 193 binaries, so nothing is built from source.
+- Do not pin `compiler.version` or `compiler.cppstd` in a profile instead.
+  Pinning `compiler.version=194` makes source builds call
+  `vcvarsall.bat -vcvars_ver=14.4`, which fails when only the 14.5 toolset is
+  installed. Pinning `compiler.cppstd` discards every prebuilt binary. The C++
+  standard this project uses comes from `CMAKE_CXX_STANDARD`.
+
+Cache variables (see [cmake/fetch_conan.cmake](../cmake/fetch_conan.cmake)):
 
 | Variable | Purpose |
 |----------|---------|
-| `SKAB_GRPC_CONAN_REFERENCE` | gRPC reference, e.g. to use a different remote or channel. Defaults to `grpc/1.69.0` (ConanCenter carries 1.54.3, 1.69.0 and 1.83.0 only) |
-| `SKAB_CONAN_PROFILE` | Conan 2 profile name for host and build. Empty uses `default`, created via `conan profile detect` |
+| `SKAB_STATIC_DEPS` | resolve gRPC/Protobuf/GoogleTest with Conan and link them statically (default `ON`) |
+| `SKAB_GRPC_CONAN_REFERENCE` | gRPC reference, e.g. for a different remote or channel. Default `grpc/1.69.0` (ConanCenter has 1.54.3, 1.69.0 and 1.83.0 only) |
+| `SKAB_CONAN_PROFILE` | Conan 2 profile for host and build. Empty uses `default`, created with `conan profile detect` |
 | `SKAB_CONAN_SETTINGS` | extra `--settings key=value` arguments |
-| `SKAB_CONAN_VENV_DIR` | location of the virtual environment (default `_build/<OS>/conan-venv`) |
-| `SKAB_CONAN_HOME_DIR` | Conan home for this project (default `_build/<OS>/conan2`) |
-| `SKAB_CONAN_EXECUTABLE` | use an existing Conan 2 client instead of provisioning one |
-| `SKAB_STATIC_DEPS` | resolve gRPC/Protobuf/GoogleTest with Conan and link them in (default `ON`) |
-| `SKAB_CONAN_BUILD_POLICY` | Conan `--build` policy. `never` turns a cache miss into an immediate error instead of an hour-long source build; CI uses it |
-| `SKAB_ALLOW_WINDOWS_DEBUG` | permit a Debug configure despite the source build it implies (see below) |
+| `SKAB_CONAN_VENV_DIR` | location of the Conan virtual environment (default `_build/<OS>/conan-venv`) |
+| `SKAB_CONAN_HOME_DIR` | Conan home (default `_build/<OS>/conan2`) |
+| `SKAB_CONAN_EXECUTABLE` | use this Conan 2 client instead of installing one |
+| `SKAB_CONAN_BUILD_POLICY` | Conan `--build` policy. CI uses `never`, so a missing binary fails at once instead of starting an hour-long source build |
+| `SKAB_CONAN_LOCKFILE` | lockfile for `conan install` (default `conan.lock`). Set it empty to resolve the version ranges afresh, e.g. for a `SKAB_GRPC_CONAN_REFERENCE` the lockfile does not contain |
+| `SKAB_ALLOW_WINDOWS_DEBUG` | allow a Debug configure on Windows (see below) |
 
-Both are scoped by host system: the home holds Conan's detected `default`
-profile, which names the host compiler, so sharing one would make a WSL
-configure resolve the Windows graph.
+### Updating conan.lock
 
-The Conan home is scoped to this project so that an existing Conan installation
-is never touched, and so that the build can install its own compatibility plugin
-into it ([cmake/conan/compatibility.py](../cmake/conan/compatibility.py)).
+After changing a requirement in `conanfile.py`, regenerate the lockfile for both
+platforms from a configured Linux tree:
 
-That plugin is what keeps builds fast. ConanCenter publishes prebuilt Windows
-binaries for one configuration only - msvc 194, cppstd 14, Release, dynamic
-runtime - while Visual Studio 2026 detects as msvc 195. A Conan `package_id` is
-an exact-match cache key rather than a statement about ABI compatibility, so
-without help nothing matches and every dependency is compiled from source. The
-plugin declares the msvc `195 -> 194 -> 193` fallback, so the published binaries
-are reused. No extra flags are needed.
+```sh
+export CONAN_HOME=$PWD/_build/Linux/conan2
+conan=_build/Linux/conan-venv/bin/conan
+$conan lock create . --lockfile= --update --lockfile-out=conan.lock \
+    -s build_type=Release
+$conan lock create . --lockfile=conan.lock --lockfile-partial --update \
+    --lockfile-out=conan.lock \
+    -s:a os=Windows -s:a compiler=msvc -s:a compiler.version=194 \
+    -s:a compiler.runtime=dynamic -s:a compiler.cppstd=14 -s:a build_type=Release
+```
 
-Declaring `compiler.version=194` in the profile instead does **not** work: Conan
-derives `vcvars_ver` from `compiler.version`, so any package that still has to be
-built from source invokes `vcvarsall.bat -vcvars_ver=14.4` and fails on a machine
-that only has the 14.5 toolset installed.
+CI configures with `SKAB_CONAN_BUILD_POLICY=never`, so a version ConanCenter
+publishes no binary for fails there within seconds.
 
-Do not pin `compiler.cppstd` either. abseil, protobuf, grpc and gtest all mark
-cppstd as ABI-relevant, so pinning it discards every prebuilt binary. The
-standard this project compiles with comes from `CMAKE_CXX_STANDARD` and has
-nothing to do with that setting.
+## Debug builds
 
-## No debug preset on Windows
+ConanCenter publishes no Debug binaries for this dependency graph, on either
+platform (checked 2026-09-14). Building Debug dependencies compiles gRPC,
+Protobuf, abseil, OpenSSL, re2, c-ares and zlib from source. That takes about
+an hour, inside CMake's configure step, where it looks like a hang.
 
-ConanCenter publishes no Debug binary for any package in this graph, on either
-platform (checked against the remote on 2026-09-14). Asking for Debug
-dependencies compiles gRPC, Protobuf, abseil, OpenSSL, re2, c-ares and zlib from
-source - about an hour, inside CMake's configure step, where it looks like a
-hang.
-
-Only Windows has a C runtime split, so only there is it fatal: a Debug build
-links `/MDd` and cannot use the published `/MD` packages at all. Configuring
-`Debug` on Windows is refused; use `relwithdebinfo`, which carries full debug
-symbols and is what CI builds. Pass `-DSKAB_ALLOW_WINDOWS_DEBUG=ON` if you
-really need debug dependencies and accept the wait.
-
-On Linux `cmake --preset debug` links the published *Release* dependencies and
-says so at configure time; only this project's code is compiled Debug. The two
-then disagree about `NDEBUG`, so if that matters, use
-`-DSKAB_STATIC_DEPS=OFF`.
+- **Windows:** a Debug configure is refused, because Debug links `/MDd` and
+  cannot use the published `/MD` packages. Use `relwithdebinfo`: it has full
+  debug symbols and is what CI builds. `-DSKAB_ALLOW_WINDOWS_DEBUG=ON` allows
+  Debug if you accept the source build.
+- **Linux:** `--preset debug` links the Release dependencies and compiles only
+  this project as Debug. The two then disagree about `NDEBUG`; if that matters,
+  use `-DSKAB_STATIC_DEPS=OFF`.
 
 ## Packaging
 
@@ -129,77 +151,54 @@ cmake --preset relwithdebinfo
 cmake --build --preset relwithdebinfo --target package
 ```
 
-This produces inside `_build/Linux/relwithdebinfo/`:
-- `sil-kit-android-bridge-<version>-Linux-x86_64.zip` - portable archive (`bin/sil-kit-android-bridge`)
-- `sil-kit-android-bridge-<version>-Linux-x86_64.deb` - Debian/Ubuntu package (`/usr/bin/sil-kit-android-bridge`)
+| Platform | Output in `_build/<OS>/relwithdebinfo/` |
+|----------|------------------------------------------|
+| Linux | `sil-kit-android-bridge-<version>-Linux-x86_64.zip` (`bin/sil-kit-android-bridge`) and `.deb` (`/usr/bin/sil-kit-android-bridge`, install with `sudo dpkg -i`) |
+| Windows | `sil-kit-android-bridge-<version>-Windows-x86_64.zip` with `bin/sil-kit-android-bridge.exe`, `bin/silkit-client.exe` and `bin/SilKit.dll` |
 
-Install the `.deb` with:
+gRPC, Protobuf, abseil, OpenSSL, re2, c-ares, zlib and the vendored spdlog are
+linked statically on both platforms. The only other runtime dependencies are:
 
-```sh
-sudo dpkg -i sil-kit-android-bridge-*.deb
-```
+- SIL Kit, which exists only as a shared library. The Windows archive ships
+  `SilKit.dll`. The `.deb` declares `libsilkit` through `dpkg-shlibdeps`.
+- The system C/C++ runtime. On Windows the Microsoft C++ redistributable
+  (`MSVCP140.dll`, `VCRUNTIME140*.dll`) is expected to be installed.
 
-On Windows a ZIP is produced instead, inside `_build/Windows/relwithdebinfo/`:
-`sil-kit-android-bridge-<version>-Windows-x86_64.zip`, containing
-`bin/sil-kit-android-bridge.exe`, `bin/silkit-client.exe` and `bin/SilKit.dll`.
-Unlike the Debian package, which resolves libsilkit through `dpkg-shlibdeps`,
-the archive is self-contained.
+This is enforced. `ci/assert-static-deps.sh` fails if a statically linked
+library appears in `DT_NEEDED`. It runs as the
+`PackagedBinaryHasNoDynamicVendoredDeps` CTest case and in CI. CI also starts
+the packaged binary in a bare `ubuntu:24.04` container with only SIL Kit
+mounted.
 
-gRPC, Protobuf, abseil, OpenSSL, re2, c-ares and zlib are linked **statically**
-on both platforms, as is the vendored spdlog, so they need nothing beside the
-executable. `dumpbin /dependents` on the packaged Windows binary lists only
-`SilKit.dll` and Windows system libraries; `readelf -d` on the Linux one lists
-`libSilKit.so.5`, libstdc++, libgcc_s and the libc family and nothing else. SIL
-Kit is the one exception on both, because it is distributed as a shared library
-with no static variant. The Microsoft C++ runtime (`MSVCP140.dll`,
-`VCRUNTIME140*.dll`) is expected from the system; the redistributable is not
-bundled.
+The Linux artifact is built on Ubuntu 24.04 and needs glibc 2.39 or newer. It
+does not run on 22.04.
 
-That is enforced, not assumed: `ci/assert-static-deps.sh` fails if such a
-library turns up in `DT_NEEDED`, and runs both as the
-`PackagedBinaryHasNoDynamicVendoredDeps` CTest case and in CI over the unpacked
-archive. CI also starts the packaged binary in a bare `ubuntu:24.04` container
-with only SIL Kit mounted - the check that would have caught the 0.4.x
-regression, which every test passed through.
-
-The Linux artifact is built on Ubuntu 24.04, needs glibc 2.39 or newer, and does
-not run on 22.04.
-
-Because those libraries end up inside the executables, their license texts ship
-with them on both platforms, under `share/doc/sil-kit-android-bridge/licenses/`
-- one directory per component, plus `NOTICES-conan.md` listing versions and SPDX
-identifiers for the Conan-resolved ones, and a count of the files shipped for
-each. The deployer fails the configure if a dependency ships no license text,
-and `ci/assert-notices.sh` fails CI if the packaged archive is missing any of
-them. Those are collected at configure time by
-[cmake/conan/licenses_deployer.py](../cmake/conan/licenses_deployer.py); the
-vendored components (spdlog, fmt, the AOSP VHAL) and SIL Kit itself are installed
-by [cmake/Notices.cmake](../cmake/Notices.cmake).
+Because the dependencies are inside the executables, their license texts ship
+with them, under `share/doc/sil-kit-android-bridge/licenses/`: one directory per
+component, plus `NOTICES-conan.md` with versions and SPDX identifiers.
+[cmake/conan/licenses_deployer.py](../cmake/conan/licenses_deployer.py) collects
+the Conan ones and fails the configure if one has no license text.
+[cmake/Notices.cmake](../cmake/Notices.cmake) installs them together with the
+vendored ones. `ci/assert-notices.sh` fails CI if the package is missing any.
 
 ## Releasing
 
-Maintainer procedure. The project version lives in
-[cmake/Version.cmake](../cmake/Version.cmake) and nowhere else; CMake, Conan and
-CI all read it from there.
+The version lives only in [cmake/Version.cmake](../cmake/Version.cmake); CMake,
+Conan and CI all read it from there. Keep its `set()` lines plain, because
+`conanfile.py` and CI parse them with a regular expression.
 
-1. Bump the triple in `cmake/Version.cmake` and merge to `main`.
-2. Tag that commit and push the tag - this is what starts a release:
+1. Bump the version in `cmake/Version.cmake` and merge to `main`.
+2. Tag that commit and push the tag. The tag push starts the release:
    ```sh
    git tag -a vX.Y.Z -m "vX.Y.Z"
    git push origin vX.Y.Z
    ```
-3. CI checks the tag against `cmake/Version.cmake` (a mismatch fails in seconds,
-   before either platform builds), builds and tests Linux and Windows, then
-   creates a **draft** release with the archives attached.
-4. Review the generated notes on the draft and press Publish.
+3. CI checks the tag against `cmake/Version.cmake`, builds and tests Linux and
+   Windows, and creates a **draft** release with the archives attached.
+4. Review the draft's notes and press Publish.
 
-Do not publish a release by hand before CI has attached the archives. If
+Do not publish a release before CI has attached the archives. With
 [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
-are enabled, publishing seals the release: its assets can no longer be changed,
-and its tag name is reserved permanently - deleting the release does not give the
-name back, so the version has to be skipped.
-
-Creating the release in the UI is still handled - the job uploads to an existing
-draft or release rather than failing - but pushing the tag is the reliable
-trigger, since a draft against a tag that does not exist yet creates no tag and
-so starts no build.
+enabled, publishing locks the assets and reserves the tag name permanently.
+Deleting the release does not free the name, so that version has to be
+skipped.

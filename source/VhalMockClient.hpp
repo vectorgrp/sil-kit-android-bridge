@@ -129,7 +129,7 @@ inline VhalMockClient::VhalMockClient(const std::string& target)
     Seed({"PERF_ODOMETER", 123456.75f});  // metres
 
     // string
-    Seed({"INFO_VIN", std::string{"WVWZZZ1JZXW000001"}});
+    Seed({"INFO_VIN", std::string{"SILKITVHALBRIDGE1"}});
     Seed({"INFO_MAKE", std::string{"Vector"}});
     Seed({"INFO_MODEL", std::string{"SIL Kit Android Bridge"}});
 

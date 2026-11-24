@@ -154,7 +154,7 @@ auto ToPropertyInfo(const proto::VehiclePropConfig& config) -> PropertyInfo
     //
     // Union, not intersection: this answers "can any part of this property be
     // read or written", because the SimpleApi has no area parameter to narrow
-    // the question with. See the area caveat in README.md - the accessors all
+    // the question with. See docs/vhal-simple-api.md - the accessors all
     // address area 0, so for a property whose areas exclude 0 this is broader
     // than what a Get<Type> will actually manage.
     auto access = static_cast<int32_t>(config.access());

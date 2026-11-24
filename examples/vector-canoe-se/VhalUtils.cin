@@ -57,11 +57,6 @@ int VhalGetApiVersion(long& value)
 // bridge that does not serve the method never matches this client, so the call
 // returns ServerNotReachable, which arrives here as status <= 0. Check the
 // return code before the struct, always.
-//
-// The out-parameter is copied field by field into a CAPL-local struct rather
-// than declaring a variable of the vCDL type directly, because the CAPL syntax
-// for the latter is unverified. If it turns out a vCDL struct can be declared
-// locally, this collapses to one assignment.
 int VhalGetPropertyStatus(char name[], struct VhalPropertyStatusView st)
 {
     int status = -1;

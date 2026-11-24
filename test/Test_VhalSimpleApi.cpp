@@ -127,12 +127,12 @@ TEST(VhalSimpleApiSerDes, DeserializeSetStringRequest)
 {
     SerDes::Serializer s;
     s.Serialize(std::string{"INFO_VIN"});
-    s.Serialize(std::string{"WVWZZZ1JZXW000001"});
+    s.Serialize(std::string{"SILKITVHALBRIDGE1"});
     const auto bytes = s.ReleaseBuffer();
 
     const auto [name, value] = Api::DeserializeSetRequest<std::string>(ToSpan(bytes));
     EXPECT_EQ(name, "INFO_VIN");
-    EXPECT_EQ(value, "WVWZZZ1JZXW000001");
+    EXPECT_EQ(value, "SILKITVHALBRIDGE1");
 }
 
 TEST(VhalSimpleApiSerDes, DeserializeSetBytesRequest)

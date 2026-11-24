@@ -6,67 +6,30 @@
 co-simulation between Android Automotive environments and CANoe/SIL Kit-based
 test benches.
 
+The bridge joins the simulation as a SIL Kit participant and serves the
+[VhalSimple API](docs/vhal-simple-api.md): get and set methods per value type
+(`int32`, `int64`, `float`, `string`, `bytes`) that address vehicle properties
+by AOSP name, such as `EV_BATTERY_LEVEL`, and forward each call to the VHAL.
+
 > [!WARNING]
 > **Public preview - we want your feedback.**
 >
 > The [VhalSimple API](docs/vhal-simple-api.md) is complete for every type the
 > bridge models and covered by tests, so it is something you can build against.
-> The project around it is early: not hardened, not security reviewed, not run
-> in production. While it is on `0.x` the CLI and the RPC surface may change
-> without notice. Do not expose it to an untrusted network.
+> The project around it is early: not hardened and not security reviewed. While
+> it is on `0.x` the CLI and the RPC surface may change without notice. Do not
+> expose it to an untrusted network.
 >
-> Today it is **polling only** (no change notification), the CANoe surface is
-> **scalar get/set only** by design, and **no automated test drives a real
-> device** - hardware is validated by hand against Cuttlefish, so expect rough
-> edges there.
+> Today it is **polling only** (no change notification), and the CANoe surface
+> is **scalar get/set only** by design.
 >
 > **Please [open an issue](https://github.com/vectorgrp/sil-kit-android-bridge/issues)**:
 > bug reports, "this does not build on my machine", missing property types, and
 > use cases we have not thought of are all equally welcome.
 
-## The VhalSimple API
-
-The bridge joins a SIL Kit simulation as a participant (default name
-`VhalBridge`) and serves the **VhalSimple API**: a small, versioned,
-request/response surface for reading and writing vehicle properties, forwarding
-each call to the VHAL.
-
-| Type | Read | Write |
-|------|------|-------|
-| `int32` | `int32 GetInt32(string name)` | `void SetInt32(string name, int32 value)` |
-| `int64` | `int64 GetInt64(string name)` | `void SetInt64(string name, int64 value)` |
-| `float` | `float GetFloat(string name)` | `void SetFloat(string name, float value)` |
-| `string` | `string GetString(string name)` | `void SetString(string name, string value)` |
-| `bytes` | `bytes GetBytes(string name)` | `void SetBytes(string name, bytes value)` |
-
-Plus `int32 GetApiVersion()`, so a CANoe configuration can check it speaks the
-same dialect, and `GetPropertyStatus`, which answers a small struct saying
-whether a property exists, what access the VHAL declares, and which accessor to
-use.
-
-Properties are addressed by their AOSP name (`EV_BATTERY_LEVEL`,
-`RANGE_REMAINING`, ...). AOSP `BOOLEAN` properties travel over the `int32`
-methods as 0/1.
-
-Full reference, including the `GetPropertyStatus` struct and what is out of
-scope: **[docs/vhal-simple-api.md](docs/vhal-simple-api.md)**.
-
-## Build
-
-```sh
-cmake --preset relwithdebinfo
-cmake --build --preset relwithdebinfo
-```
-
-Binaries land in `_build/<OS>/<preset>/`, e.g. `_build/Linux/relwithdebinfo/`.
-The presets are `debug`, `release` and `relwithdebinfo`; `debug` is Linux-only.
-On Windows, build from a Visual Studio developer command prompt.
-
-The primary target platform is Ubuntu; the build depends only on publicly
-available packages. Windows is built and tested in CI as well. What has to be
-installed first is in [docs/building.md](docs/building.md).
-
 ## Quick start
+
+Build the bridge first, see [docs/building.md](docs/building.md).
 
 The fastest way to see the bridge work needs no Android device at all: `--mock`
 serves an in-memory VHAL seeded with one property per type. Each value is
@@ -95,9 +58,9 @@ No assignments on the command line; reading PROPERTY=value lines from stdin (Ctr
 EV_BATTERY_LEVEL=88.5
 SET  EV_BATTERY_LEVEL = 88.5 (float) -> Success
 GET  EV_BATTERY_LEVEL = 88.5 (float)
-INFO_VIN=WVWZZZ1JZXW000001
-SET  INFO_VIN = 'WVWZZZ1JZXW000001' (string) -> Success
-GET  INFO_VIN = WVWZZZ1JZXW000001 (string)
+INFO_VIN=SILKITVHALBRIDGE1
+SET  INFO_VIN = 'SILKITVHALBRIDGE1' (string) -> Success
+GET  INFO_VIN = SILKITVHALBRIDGE1 (string)
 ```
 
 The method family is chosen from the AOSP property-id type bits, so a plain
@@ -151,16 +114,6 @@ bridge because `-V` is already `--vhal-uri`.)
 `--log` and `--configuration` are mutually exclusive: the configuration file
 carries its own logging setup.
 
-## Testing
-
-```sh
-ctest --preset relwithdebinfo --output-on-failure
-```
-
-The suite is self-contained: it starts its own SIL Kit registry and its own fake
-VHAL, so it needs neither a running `sil-kit-registry` nor an Android device.
-What each target covers is in [AGENTS.md](AGENTS.md#testing).
-
 ## Examples
 
 [examples/vector-canoe-se/](examples/vector-canoe-se/) contains a CANoe Server
@@ -172,16 +125,15 @@ Vector tooling; everything else in this repository does not.
 
 - [docs/vhal-simple-api.md](docs/vhal-simple-api.md) - the API in full: every
   method, the `GetPropertyStatus` struct, scope, and the wire contract
-- [docs/building.md](docs/building.md) - prerequisites, Conan on Windows,
-  packaging and releasing
-- [AGENTS.md](AGENTS.md) - engineering rules and the test layout
+- [docs/building.md](docs/building.md) - prerequisites, Conan, packaging and
+  releasing
+- [docs/testing.md](docs/testing.md) - test rules and what each target covers
 - [docs/](docs/) - index of the above
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the DCO sign-off requirement and the
-coding conventions, [AGENTS.md](AGENTS.md) for the engineering rules the codebase
-follows, and [SECURITY.md](SECURITY.md) for how to report a vulnerability
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the DCO sign-off and the coding
+conventions, and [SECURITY.md](SECURITY.md) for how to report a vulnerability
 privately.
 
 ## License

@@ -70,8 +70,6 @@ export testcase CheckEvBatteryProperties()
     testWaitForTimeout(3000);
     status = VhalSetInt32("EV_CHARGE_PORT_CONNECTED", 0);
     status = VhalSetFloat("RANGE_REMAINING", 1337);
-
-    testStepPass("1.0", "Test completed");
 }
 
 // Exercises one property per VhalSimple type. Written to pass against BOTH the
@@ -199,15 +197,10 @@ export testcase CheckAllPropertyTypes()
     }
 
     // ---- introspection: telling a missing property from a mistyped one ----
-    // Backend-agnostic on purpose. Against --mock EV_BATTERY_LEVEL is
-    // read/write, against a real VHAL it is read-only, so the access bits are
-    // reported rather than asserted; what must hold either way is that the
-    // property is there and that the bridge recommends the float accessor.
-    // Readable and known-name are asserted, not just printed: a bridge that
-    // reported no access for every property - the exact failure the per-area
-    // access handling exists to prevent - would otherwise pass this step.
-    // Writability is only reported, because EV_BATTERY_LEVEL is read/write
-    // against --mock and read-only against a real VHAL.
+    // Backend-agnostic on purpose. EV_BATTERY_LEVEL is read/write against
+    // --mock and read-only against a real VHAL, so writability is reported, not
+    // asserted. Existence, readability, the known name and the float accessor
+    // must hold either way.
     status = VhalGetPropertyStatus("EV_BATTERY_LEVEL", propStatus);
     if (status > 0 && propStatus.exists && propStatus.readable && propStatus.knownName
         && propStatus.valueType == kVhalTypeFloat && !propStatus.queryFailed) {
@@ -232,8 +225,6 @@ export testcase CheckAllPropertyTypes()
         testStepFail("7.2", "unknown name: status=%d exists=%d knownName=%d queryFailed=%d",
                      status, propStatus.exists, propStatus.knownName, propStatus.queryFailed);
     }
-
-    testStepPass("8.0", "All VhalSimple types exercised");
 }
 
 // Asserts the exact values --mock seeds (see source/VhalMockClient.hpp). Only
@@ -272,10 +263,10 @@ export testcase CheckMockSeedValues()
     }
 
     status = VhalGetString("INFO_VIN", text);
-    if (status > 0 && strncmp(text, "WVWZZZ1JZXW000001", 17) == 0) {
+    if (status > 0 && strncmp(text, "SILKITVHALBRIDGE1", 17) == 0) {
         testStepPass("4.1", "INFO_VIN = %s", text);
     } else {
-        testStepFail("4.1", "INFO_VIN: status=%d, value=%s (expected the seeded WVWZZZ1JZXW000001)", status, text);
+        testStepFail("4.1", "INFO_VIN: status=%d, value=%s (expected the seeded SILKITVHALBRIDGE1)", status, text);
     }
 
     status = VhalGetBytes("STORAGE_ENCRYPTION_BINDING_SEED", blob, blobLen);
@@ -284,6 +275,4 @@ export testcase CheckMockSeedValues()
     } else {
         testStepFail("5.1", "STORAGE_ENCRYPTION_BINDING_SEED: status=%d, len=%d (expected the seeded 4 bytes DE AD BE EF)", status, blobLen);
     }
-
-    testStepPass("6.0", "Mock seed values verified");
 }

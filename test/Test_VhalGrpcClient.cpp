@@ -120,12 +120,12 @@ TEST(VhalConvertValue, FloatPropertyYieldsFloat)
 TEST(VhalConvertValue, StringPropertyYieldsString)
 {
     auto v = ValueOf(kStringProp);
-    v.set_string_value("WVWZZZ1JZXW000001");
+    v.set_string_value("SILKITVHALBRIDGE1");
 
     const auto prop = VhalConvert::ToCarProperty(v);
     ASSERT_TRUE(prop.has_value());
     EXPECT_TRUE(prop->Holds<std::string>());
-    EXPECT_EQ(prop->Get<std::string>().value(), "WVWZZZ1JZXW000001");
+    EXPECT_EQ(prop->Get<std::string>().value(), "SILKITVHALBRIDGE1");
 }
 
 TEST(VhalConvertValue, BytesPropertyYieldsByteVector)
@@ -219,7 +219,7 @@ TEST(VhalConvertWrite, WriteThenReadRoundTripsEveryType)
     roundTrip(kInt32Prop, CarProperty::Value{int32_t{2026}});
     roundTrip(kInt64Prop, CarProperty::Value{int64_t{1767225600000}});
     roundTrip(kFloatProp, CarProperty::Value{88.5f});
-    roundTrip(kStringProp, CarProperty::Value{std::string{"WVWZZZ1JZXW000001"}});
+    roundTrip(kStringProp, CarProperty::Value{std::string{"SILKITVHALBRIDGE1"}});
     roundTrip(kBytesProp, CarProperty::Value{std::vector<uint8_t>{0xDE, 0xAD, 0xBE, 0xEF}});
     roundTrip(kBooleanProp, CarProperty::Value{int32_t{1}});
 }
