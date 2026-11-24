@@ -70,8 +70,6 @@ export testcase CheckEvBatteryProperties()
     testWaitForTimeout(3000);
     status = VhalSetInt32("EV_CHARGE_PORT_CONNECTED", 0);
     status = VhalSetFloat("RANGE_REMAINING", 1337);
-
-    testStepPass("1.0", "Test completed");
 }
 
 // Exercises one property per VhalSimple type. Written to pass against BOTH the
@@ -227,8 +225,6 @@ export testcase CheckAllPropertyTypes()
         testStepFail("7.2", "unknown name: status=%d exists=%d knownName=%d queryFailed=%d",
                      status, propStatus.exists, propStatus.knownName, propStatus.queryFailed);
     }
-
-    testStepPass("8.0", "All VhalSimple types exercised");
 }
 
 // Asserts the exact values --mock seeds (see source/VhalMockClient.hpp). Only
@@ -279,6 +275,4 @@ export testcase CheckMockSeedValues()
     } else {
         testStepFail("5.1", "STORAGE_ENCRYPTION_BINDING_SEED: status=%d, len=%d (expected the seeded 4 bytes DE AD BE EF)", status, blobLen);
     }
-
-    testStepPass("6.0", "Mock seed values verified");
 }

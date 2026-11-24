@@ -202,7 +202,3 @@ Do not publish a release before CI has attached the archives. With
 enabled, publishing locks the assets and reserves the tag name permanently.
 Deleting the release does not free the name, so that version has to be
 skipped.
-
-A release created in the web UI also works (CI uploads to an existing draft or
-release), but pushing the tag is the reliable trigger. A draft for a tag that
-does not exist yet creates no tag, so no build starts.

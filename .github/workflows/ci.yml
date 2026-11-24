@@ -219,10 +219,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          # The release can already exist: publishing one in the web UI creates
-          # the tag that starts this workflow. New ones are left as drafts so the
-          # archives are attached before anyone publishes - under immutable
-          # releases publishing seals the assets and reserves the tag forever.
+          # The draft already exists when this job is re-run. New ones are left
+          # as drafts so the archives are attached before anyone publishes -
+          # under immutable releases publishing seals the assets and reserves
+          # the tag forever.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
           else
