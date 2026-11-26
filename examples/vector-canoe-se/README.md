@@ -10,8 +10,8 @@ surface the bridge exposes to any other participant.
 This example needs commercial Vector tooling (CANoe SE and its command line
 tools). It is tested with CANoe SE 20.2.89 on Ubuntu 24.04. Everything in the
 repository outside this directory builds and runs without it -- use
-`sil-kit-android-bridge --mock` and the `silkit-client` tool if you do not have
-CANoe.
+`sil-kit-android-bridge --mock` and the `sil-kit-android-bridge-client` tool if
+you do not have CANoe.
 
 ## What is here
 

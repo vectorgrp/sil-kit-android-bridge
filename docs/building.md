@@ -159,7 +159,7 @@ cmake --build --preset relwithdebinfo --target package
 Both zips have the same layout:
 
 ```
-bin/                     sil-kit-android-bridge, silkit-client
+bin/                     sil-kit-android-bridge, sil-kit-android-bridge-client
 docs/                    the documentation, and licenses/ with the third-party license texts
 README.md
 LICENSE.md

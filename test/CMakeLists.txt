@@ -144,27 +144,27 @@ target_link_libraries(grpc-client-test
 target_include_directories(grpc-client-test PRIVATE ${SOURCE_DIR})
 skab_copy_runtime_dlls(grpc-client-test)
 
-# silkit-client: connects to the sil-kit-android-bridge (at registry URI passed in as
+# sil-kit-android-bridge-client: connects to the sil-kit-android-bridge (at registry URI passed in as
 # argv[1]) and exercises the SIL Kit RPC side of the bridge:.
 # add_test/gtest_discover_tests.
-add_executable(silkit-client
-    silkit-client.cpp
+add_executable(sil-kit-android-bridge-client
+    sil-kit-android-bridge-client.cpp
     ${SOURCE_DIR}/VhalSimpleApi.cpp
 )
-target_link_libraries(silkit-client
+target_link_libraries(sil-kit-android-bridge-client
     PRIVATE
         SilKit::SilKit
         spdlog::spdlog
 )
-target_include_directories(silkit-client PRIVATE ${SOURCE_DIR})
+target_include_directories(sil-kit-android-bridge-client PRIVATE ${SOURCE_DIR})
 # Ship the client tool next to the bridge: same top-level output dir, and install
 # it alongside sil-kit-android-bridge (see source/CMakeLists.txt).
-set_target_properties(silkit-client PROPERTIES
+set_target_properties(sil-kit-android-bridge-client PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
-skab_copy_runtime_dlls(silkit-client)
+skab_copy_runtime_dlls(sil-kit-android-bridge-client)
 include(GNUInstallDirs)
-install(TARGETS silkit-client
+install(TARGETS sil-kit-android-bridge-client
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
@@ -177,7 +177,7 @@ if(UNIX AND NOT APPLE AND SKAB_STATIC_DEPS)
     add_test(NAME PackagedBinaryHasNoDynamicVendoredDeps
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../ci/assert-static-deps.sh
                 $<TARGET_FILE:sil-kit-android-bridge>
-                $<TARGET_FILE:silkit-client>)
+                $<TARGET_FILE:sil-kit-android-bridge-client>)
     set_tests_properties(PackagedBinaryHasNoDynamicVendoredDeps
         PROPERTIES TIMEOUT ${SKAB_TEST_TIMEOUT})
 endif()

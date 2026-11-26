@@ -36,8 +36,8 @@ it on Linux and Windows; a test that passes on only one of them is broken.
 | `ITest_VhalBridgeGrpc` | the whole chain, thin: consumer -> SIL Kit -> adapter -> `VhalGrpcClient` -> fake VHAL |
 | `PackagedBinaryHasNoDynamicVendoredDeps` | Linux only: the binaries link gRPC and Protobuf statically |
 
-`grpc-client-test` and `silkit-client` are manual tools. They are built but not
-registered with CTest.
+`grpc-client-test` and `sil-kit-android-bridge-client` are manual tools. They
+are built but not registered with CTest.
 
 ## Test helpers
 

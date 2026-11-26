@@ -13,8 +13,8 @@
 // is derived from the AOSP property-id type bits (see VhalProperty.hpp).
 //
 // Assignments can be given as arguments:
-//   silkit-client --registry-uri silkit://localhost:8500 \
-//                 RANGE_REMAINING=1234.0 EV_BATTERY_LEVEL=80
+//   sil-kit-android-bridge-client --registry-uri silkit://localhost:8500 \
+//                                 RANGE_REMAINING=1234.0 EV_BATTERY_LEVEL=80
 // or, if none are given, read line by line from std::cin (one per line):
 //   RANGE_REMAINING=1234.0
 //   EV_BATTERY_LEVEL          # bare name -> read only
@@ -320,7 +320,7 @@ Logging:
         try
         {
             if (lifecycle_ && lifecycle_->State() == Orchestration::ParticipantState::Running)
-                lifecycle_->Stop("silkit-client teardown");
+                lifecycle_->Stop("sil-kit-android-bridge-client teardown");
             // Wait for the lifecycle to settle so we disconnect gracefully.
             if (finalState_.valid())
                 finalState_.wait_for(std::chrono::seconds{2});
@@ -612,7 +612,7 @@ int main(int argc, char** argv) try
     using CliParser = SilKit::Util::CommandlineParser;
     CliParser parser;
     parser.SetDescription(
-        "silkit-client - CANoe-side RPC client for the sil-kit-android-bridge.\n"
+        "sil-kit-android-bridge-client - CANoe-side RPC client for the sil-kit-android-bridge.\n"
         "Sends PROPERTY=value assignments (Set + read-back) and bare PROPERTY reads,\n"
         "either from the command line or, if none are given, line by line from stdin.\n"
         "Exits with 1 if any line fails to parse or any call fails.");
@@ -623,8 +623,8 @@ int main(int argc, char** argv) try
         "registry-uri", "u", "silkit://localhost:8500", "[--registry-uri <uri>]",
         "-u, --registry-uri <uri>: The registry URI to connect to. Defaults to 'silkit://localhost:8500'.");
     parser.Add<CliParser::Option>(
-        "name", "n", "silkit-client", "[--name <participantName>]",
-        "-n, --name <participantName>: The participant name. Defaults to 'silkit-client'.");
+        "name", "n", "sil-kit-android-bridge-client", "[--name <participantName>]",
+        "-n, --name <participantName>: The participant name. Defaults to 'sil-kit-android-bridge-client'.");
     parser.Add<CliParser::Option>("namespace", "N", VhalSimpleApi::kNamespace, "[--namespace <ns>]",
                                   "-N, --namespace <ns>: SIL Kit RPC namespace label. Defaults to 'VhalSimple'.");
     parser.Add<CliParser::Option>("instance", "i", VhalSimpleApi::kInstance, "[--instance <instance>]",

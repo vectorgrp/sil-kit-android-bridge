@@ -31,8 +31,9 @@ by AOSP name, such as `EV_BATTERY_LEVEL`, and forward each call to the VHAL.
 
 Download a package from the
 [releases](https://github.com/vectorgrp/sil-kit-android-bridge/releases): the
-Linux `.deb` installs `sil-kit-android-bridge` and `silkit-client` to
-`/usr/bin`, and the Linux and Windows zips have both in `bin/`. You also need
+Linux `.deb` installs `sil-kit-android-bridge` and
+`sil-kit-android-bridge-client` to `/usr/bin`, and the Linux and Windows zips
+have both in `bin/`. You also need
 [SIL Kit 5](https://github.com/vectorgrp/sil-kit/releases) for the registry,
 and on Linux for `libSilKit`. To build from source instead, see
 [docs/building.md](docs/building.md); the binaries then land in
@@ -52,14 +53,14 @@ sil-kit-registry --listen-uri silkit://localhost:8500 &
 sil-kit-android-bridge --mock
 
 # 3. In another terminal, drive it with the bundled client tool
-silkit-client
+sil-kit-android-bridge-client
 ```
 
-`silkit-client` reads `PROPERTY=value` lines from stdin and prints each
-round-trip:
+`sil-kit-android-bridge-client` reads `PROPERTY=value` lines from stdin and
+prints each round-trip:
 
 ```
-Connecting participant 'silkit-client' to registry 'silkit://localhost:8500' (Namespace=VhalSimple, Instance=properties, VirtualNetwork=Default)
+Connecting participant 'sil-kit-android-bridge-client' to registry 'silkit://localhost:8500' (Namespace=VhalSimple, Instance=properties, VirtualNetwork=Default)
 Connected to the VhalSimple API v1.
 No assignments on the command line; reading PROPERTY=value lines from stdin (Ctrl+D / Ctrl+Z to end).
 EV_BATTERY_LEVEL=88.5
@@ -112,9 +113,9 @@ sil-kit-android-bridge [OPTIONS]
 ```
 
 `--namespace`, `--instance` and `--virtual-network` are the three labels SIL Kit
-matches on; the defaults pair with the stock `VhalSimple.vcdl`. `silkit-client`
-takes the same three options, so both sides can be pointed at a different
-interface definition together. (`--virtual-network` has no short form on the
+matches on; the defaults pair with the stock `VhalSimple.vcdl`.
+`sil-kit-android-bridge-client` takes the same three options, so both sides can
+be pointed at a different interface definition together. (`--virtual-network` has no short form on the
 bridge because `-V` is already `--vhal-uri`.)
 
 `--log` and `--configuration` are mutually exclusive: the configuration file

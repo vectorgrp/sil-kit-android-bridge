@@ -64,7 +64,7 @@ int main(int argc, char** argv) try {
     // a stock bridge and a stock VhalSimple.vcdl pair up with no arguments;
     // overriding them lets the same binary serve a different interface
     // definition. Note --virtual-network has no short form: -V is --vhal-uri
-    // here, though silkit-client (which has no --vhal-uri) does use -V for it.
+    // here, though sil-kit-android-bridge-client (which has no --vhal-uri) does use -V for it.
     parser.Add<CliParser::Option>(
         "namespace", "N", VhalSimpleApi::kNamespace, "[--namespace <name>]",
         std::string{"-N, --namespace <name>: The VCDL namespace to serve, used as the mandatory 'Namespace' "
