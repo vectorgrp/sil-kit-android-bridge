@@ -35,8 +35,11 @@ endif()
 set(CPACK_PACKAGE_FILE_NAME
     "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_NAME}-${_package_arch}")
 
-# ZIP: empty install prefix gives a flat bin/ layout inside the archive
+# ZIP: empty install prefix gives a flat bin/ layout inside the archive, and
+# cmake/ZipLayout.cmake moves the documentation from <docdir> to the top.
 set(CPACK_PACKAGING_INSTALL_PREFIX "")
+set(CPACK_SKAB_DOC_ROOT "${SKAB_DOC_ROOT}")
+set(CPACK_PRE_BUILD_SCRIPTS "${CMAKE_CURRENT_LIST_DIR}/ZipLayout.cmake")
 
 if(WIN32)
     # No DEB on Windows; the archive carries SilKit.dll (see source/CMakeLists.txt).

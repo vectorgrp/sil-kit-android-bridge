@@ -106,7 +106,7 @@ jobs:
       - name: Packaged binaries must carry their license texts
         run: |
           set -euo pipefail
-          ./ci/assert-notices.sh pkg/root/share/doc/sil-kit-android-bridge/licenses
+          ./ci/assert-notices.sh pkg/root/docs/licenses
 
       # The 0.4.x regression was invisible until the binary ran somewhere the
       # libraries were not installed. Mount SIL Kit and nothing else.
@@ -190,7 +190,7 @@ jobs:
           rm -rf pkg && mkdir pkg
           unzip -q "$zip" -d pkg
           mv pkg/*/ pkg/root
-          ./ci/assert-notices.sh pkg/root/share/doc/sil-kit-android-bridge/licenses
+          ./ci/assert-notices.sh pkg/root/docs/licenses
 
       - name: Upload packages
         if: startsWith(github.ref, 'refs/tags/')
