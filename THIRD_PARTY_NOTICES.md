@@ -64,12 +64,9 @@ distribution's own copyright files apply. The released artifacts are not built t
 ### Notices shipped with the binaries
 
 The packages produced by `cmake --build --target package` carry the full license text of
-every component listed above, under:
-
-    share/doc/sil-kit-android-bridge/licenses/
-
-with one directory per component and an index in `NOTICES-conan.md` giving the exact versions
-and SPDX identifiers. The texts for the Conan-resolved components are collected at configure
+every component listed above, in `docs/licenses/` next to this file: at the top of the zip,
+and under `/usr/share/doc/sil-kit-android-bridge/` in the `.deb`. There is one directory per
+component, and an index in `NOTICES-conan.md` giving the exact versions and SPDX identifiers. The texts for the Conan-resolved components are collected at configure
 time by [cmake/conan/licenses_deployer.py](cmake/conan/licenses_deployer.py), and everything
 is installed by [cmake/Notices.cmake](cmake/Notices.cmake). That index is authoritative for
 versions; the tables in this file name components, not versions.
@@ -79,7 +76,7 @@ no license text, and `ci/assert-notices.sh` fails CI if the packaged archive is 
 directory for anything the index lists, or any of the vendored components. Run it yourself
 against an unpacked package:
 
-    ci/assert-notices.sh <unpacked>/share/doc/sil-kit-android-bridge/licenses
+    ci/assert-notices.sh <unpacked>/docs/licenses
 
 Apache-2.0 section 4(d) is the operative obligation for gRPC, abseil and OpenSSL, and it is
 satisfied by that directory. If you repackage these binaries by other means, carry those

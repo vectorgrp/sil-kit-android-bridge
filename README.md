@@ -29,11 +29,18 @@ by AOSP name, such as `EV_BATTERY_LEVEL`, and forward each call to the VHAL.
 
 ## Quick start
 
-Build the bridge first, see [docs/building.md](docs/building.md).
+Download a package from the
+[releases](https://github.com/vectorgrp/sil-kit-android-bridge/releases): the
+Linux `.deb` installs `sil-kit-android-bridge` and `silkit-client` to
+`/usr/bin`, and the Linux and Windows zips have both in `bin/`. You also need
+[SIL Kit 5](https://github.com/vectorgrp/sil-kit/releases) for the registry,
+and on Linux for `libSilKit`. To build from source instead, see
+[docs/building.md](docs/building.md); the binaries then land in
+`_build/<OS>/relwithdebinfo/`.
 
 The fastest way to see the bridge work needs no Android device at all: `--mock`
-serves an in-memory VHAL seeded with one property per type. Each value is
-distinctive, so a wrong read looks wrong rather than looking like a plausible
+serves an in-memory VHAL seeded with at least one property per type. Each value
+is distinctive, so a wrong read looks wrong rather than looking like a plausible
 zero, and every property carries the type AOSP declares for it, so the mock
 behaves like a device.
 
@@ -42,10 +49,10 @@ behaves like a device.
 sil-kit-registry --listen-uri silkit://localhost:8500 &
 
 # 2. Start the bridge against the built-in mock VHAL
-./_build/Linux/relwithdebinfo/sil-kit-android-bridge --mock
+sil-kit-android-bridge --mock
 
 # 3. In another terminal, drive it with the bundled client tool
-./_build/Linux/relwithdebinfo/silkit-client
+silkit-client
 ```
 
 `silkit-client` reads `PROPERTY=value` lines from stdin and prints each
@@ -78,8 +85,7 @@ $ pgrep -al vhal
 ```
 
 ```sh
-./_build/Linux/relwithdebinfo/sil-kit-android-bridge \
-    --vhal-uri unix:///tmp/vsock_3_1002/vm.vsock_9300
+sil-kit-android-bridge --vhal-uri unix:///tmp/vsock_3_1002/vm.vsock_9300
 ```
 
 Refer to the
@@ -146,6 +152,5 @@ AOSP Vehicle HAL (Apache-2.0) and spdlog/fmt (MIT). The project is therefore an 
 not a pure-MIT work; the bundled components retain their own licenses. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the complete list and attributions.
 
-Built packages carry the corresponding license texts in
-`share/doc/sil-kit-android-bridge/licenses/`, so a distributed archive is
-complete on its own.
+Built packages carry the corresponding license texts in `docs/licenses/`, so a
+distributed archive is complete on its own.

@@ -123,31 +123,52 @@ enum class WireType
     Bytes
 };
 
-// Derive the family from the AOSP property-id type bits. For a name that is not in
-// the compile-time table, fall back to inferring from the literal (a '.'/exponent
-// means float, quotes or non-numeric characters mean string), so ad-hoc/vendor
-// names still work.
+// Derive the family from the AOSP property-id type bits.
+auto WireTypeForId(int32_t id) -> WireType
+{
+    switch (getPropertyType(id))
+    {
+    case VehiclePropertyType::FLOAT:
+    case VehiclePropertyType::FLOAT_VEC:
+        return WireType::Float;
+    case VehiclePropertyType::INT64:
+    case VehiclePropertyType::INT64_VEC:
+        return WireType::Int64;
+    case VehiclePropertyType::STRING:
+        return WireType::String;
+    case VehiclePropertyType::BYTES:
+        return WireType::Bytes;
+    default:
+        return WireType::Int32;
+    }
+}
+
+auto WireTypeName(WireType type) -> const char*
+{
+    switch (type)
+    {
+    case WireType::Int64:
+        return "int64";
+    case WireType::Float:
+        return "float";
+    case WireType::String:
+        return "string";
+    case WireType::Bytes:
+        return "bytes";
+    case WireType::Int32:
+        break;
+    }
+    return "int32";
+}
+
+// For a name that is not in the compile-time table, fall back to inferring from
+// the literal (a '.'/exponent means float, quotes or non-numeric characters mean
+// string), so ad-hoc/vendor names still work.
 auto WireTypeFor(const std::string& name, const std::string& value) -> WireType
 {
     const auto id = VehicleProperty_GetIdByName(name);
     if (id != 0)
-    {
-        switch (getPropertyType(id))
-        {
-        case VehiclePropertyType::FLOAT:
-        case VehiclePropertyType::FLOAT_VEC:
-            return WireType::Float;
-        case VehiclePropertyType::INT64:
-        case VehiclePropertyType::INT64_VEC:
-            return WireType::Int64;
-        case VehiclePropertyType::STRING:
-            return WireType::String;
-        case VehiclePropertyType::BYTES:
-            return WireType::Bytes;
-        default:
-            return WireType::Int32;
-        }
-    }
+        return WireTypeForId(id);
     if (value.empty())
         return WireType::Int32;
     if (value.find_first_not_of("+-0123456789.eE") != std::string::npos)
@@ -327,14 +348,15 @@ Logging:
     //! Ask the bridge what it knows about a property, and print it decoded.
     //! This is the only way to tell a property that holds 0 from one that does
     //! not exist, so it is worth reaching for before blaming a name.
-    void PropertyStatus(const std::string& name)
+    //! An unknown name is an answer; only a failed call or query returns false.
+    auto PropertyStatus(const std::string& name) -> bool
     {
         const auto reqBytes = GetReq(name);
         const auto res = Call(propertyStatus_, ToSpan(reqBytes));
         if (res.status != Rpc::RpcCallStatus::Success)
         {
             print("STAT {} FAILED: {}", name, StatusName(res.status));
-            return;
+            return false;
         }
 
         SerDes::Deserializer d{res.data};
@@ -349,26 +371,30 @@ Logging:
         {
             print("STAT {} could not be answered (VHAL unreachable, or a malformed request){}", name,
                   knownName ? ", but AOSP knows the name" : "");
-            return;
+            return false;
         }
         if (!exists && !knownName)
         {
             print("STAT {} unknown to the bridge: not configured, and not an AOSP property name", name);
-            return;
+            return true;
         }
         print("STAT {} {}{}{}{} accessor={}", name, exists ? "exists " : "not-configured ", readable ? "readable " : "",
               writable ? "writable " : "", knownName ? "aosp-name " : "",
               TypeCodeName(static_cast<VhalSimpleApi::TypeCode>(valueType)));
+        return true;
     }
 
-    // Read a single property and print its value.
-    void Get(const std::string& name)
+    // Read a single property and print its value. Returns false if the call failed.
+    auto Get(const std::string& name) -> bool
     {
         auto report = [&](const CallResult& res, const char* type, auto&& render) {
-            if (res.status == Rpc::RpcCallStatus::Success)
-                print("GET  {} = {} ({})", name, render(res.data), type);
-            else
+            if (res.status != Rpc::RpcCallStatus::Success)
+            {
                 print("GET  {} FAILED: {}", name, StatusName(res.status));
+                return false;
+            }
+            print("GET  {} = {} ({})", name, render(res.data), type);
+            return true;
         };
         // GetReq returns by value and ToSpan does not own: the buffer has to outlive
         // every Call below, so it needs a name rather than being a temporary.
@@ -377,27 +403,25 @@ Logging:
         switch (WireTypeFor(name))
         {
         case WireType::Float:
-            report(Call(getFloat_, req), "float", [](const auto& b) { return ParseValue<float>(b); });
-            return;
+            return report(Call(getFloat_, req), "float", [](const auto& b) { return ParseValue<float>(b); });
         case WireType::Int64:
-            report(Call(getInt64_, req), "int64", [](const auto& b) { return ParseValue<int64_t>(b); });
-            return;
+            return report(Call(getInt64_, req), "int64", [](const auto& b) { return ParseValue<int64_t>(b); });
         case WireType::String:
-            report(Call(getString_, req), "string", [](const auto& b) { return ParseValue<std::string>(b); });
-            return;
+            return report(Call(getString_, req), "string", [](const auto& b) { return ParseValue<std::string>(b); });
         case WireType::Bytes:
-            report(Call(getBytes_, req), "bytes",
-                   [](const auto& b) { return HexOf(ParseValue<std::vector<uint8_t>>(b)); });
-            return;
+            return report(Call(getBytes_, req), "bytes",
+                          [](const auto& b) { return HexOf(ParseValue<std::vector<uint8_t>>(b)); });
         case WireType::Int32:
             break;
         }
-        report(Call(getInt_, req), "int32", [](const auto& b) { return ParseValue<int32_t>(b); });
+        return report(Call(getInt_, req), "int32", [](const auto& b) { return ParseValue<int32_t>(b); });
     }
 
-    // Set a property, then read it back to show the effect.
-    void Set(const std::string& name, const std::string& valueStr)
+    // Set a property, then read it back to show the effect. Returns false if the
+    // value does not parse, or the set or the read-back failed.
+    auto Set(const std::string& name, const std::string& valueStr) -> bool
     {
+        auto setStatus = Rpc::RpcCallStatus::UndefinedError;
         try
         {
             switch (WireTypeFor(name, valueStr))
@@ -405,35 +429,35 @@ Logging:
             case WireType::Float:
             {
                 const float value = std::stof(valueStr);
-                const auto res = Call(setFloat_, ToSpan(SetReq(name, value)));
-                print("SET  {} = {} (float) -> {}", name, value, StatusName(res.status));
+                setStatus = Call(setFloat_, ToSpan(SetReq(name, value))).status;
+                print("SET  {} = {} (float) -> {}", name, value, StatusName(setStatus));
                 break;
             }
             case WireType::Int64:
             {
                 const int64_t value = std::stoll(valueStr);
-                const auto res = Call(setInt64_, ToSpan(SetReq(name, value)));
-                print("SET  {} = {} (int64) -> {}", name, value, StatusName(res.status));
+                setStatus = Call(setInt64_, ToSpan(SetReq(name, value))).status;
+                print("SET  {} = {} (int64) -> {}", name, value, StatusName(setStatus));
                 break;
             }
             case WireType::String:
             {
-                const auto res = Call(setString_, ToSpan(SetReq(name, valueStr)));
-                print("SET  {} = '{}' (string) -> {}", name, valueStr, StatusName(res.status));
+                setStatus = Call(setString_, ToSpan(SetReq(name, valueStr))).status;
+                print("SET  {} = '{}' (string) -> {}", name, valueStr, StatusName(setStatus));
                 break;
             }
             case WireType::Bytes:
             {
                 const auto value = BytesFromHex(valueStr);
-                const auto res = Call(setBytes_, ToSpan(SetReq(name, value)));
-                print("SET  {} = {} (bytes) -> {}", name, HexOf(value), StatusName(res.status));
+                setStatus = Call(setBytes_, ToSpan(SetReq(name, value))).status;
+                print("SET  {} = {} (bytes) -> {}", name, HexOf(value), StatusName(setStatus));
                 break;
             }
             case WireType::Int32:
             {
                 const int32_t value = ParseInt32Value(valueStr);
-                const auto res = Call(setInt_, ToSpan(SetReq(name, value)));
-                print("SET  {} = {} (int32) -> {}", name, value, StatusName(res.status));
+                setStatus = Call(setInt_, ToSpan(SetReq(name, value))).status;
+                print("SET  {} = {} (int32) -> {}", name, value, StatusName(setStatus));
                 break;
             }
             }
@@ -441,9 +465,10 @@ Logging:
         catch (const std::exception& e)
         {
             print("SET  {} = '{}' FAILED: cannot parse value ({})", name, valueStr, e.what());
-            return;
+            return false;
         }
-        Get(name); // read-back
+        const bool readBackOk = Get(name);
+        return setStatus == Rpc::RpcCallStatus::Success && readBackOk;
     }
 
 private:
@@ -542,7 +567,8 @@ const std::regex kGetRe{R"(^\s*([A-Za-z_][A-Za-z0-9_.]*)\s*$)"};
 const std::regex kStatusRe{R"(^\s*\?\s*([A-Za-z_][A-Za-z0-9_.]*)\s*$)"};
 
 // Apply one "PROPERTY=value" or "PROPERTY" line. Blank lines and '#' comments are
-// ignored. Returns false only for a line that matches no accepted form.
+// ignored. Returns false for a line that matches no accepted form, or whose call
+// failed.
 auto ProcessLine(BridgeClient& client, const std::string& line) -> bool
 {
     // strip a trailing comment and surrounding blanks
@@ -553,20 +579,11 @@ auto ProcessLine(BridgeClient& client, const std::string& line) -> bool
 
     std::smatch m;
     if (std::regex_match(trimmed, m, kAssignRe))
-    {
-        client.Set(m[1].str(), m[2].str());
-        return true;
-    }
+        return client.Set(m[1].str(), m[2].str());
     if (std::regex_match(trimmed, m, kStatusRe))
-    {
-        client.PropertyStatus(m[1].str());
-        return true;
-    }
+        return client.PropertyStatus(m[1].str());
     if (std::regex_match(trimmed, m, kGetRe))
-    {
-        client.Get(m[1].str());
-        return true;
-    }
+        return client.Get(m[1].str());
     print("Cannot parse '{}': expected PROPERTY=value, PROPERTY or ?PROPERTY", line);
     return false;
 }
@@ -582,10 +599,7 @@ void ListProperties()
 
     for (const auto& [name, id] : all)
     {
-        const auto family = (getPropertyType(id) == VehiclePropertyType::FLOAT
-                             || getPropertyType(id) == VehiclePropertyType::FLOAT_VEC)
-                                ? "float"
-                                : "int32";
+        const auto family = WireTypeName(WireTypeForId(id));
         print("{:<52} id={:<12} type={:<10} wire={}", name, id, std::string{VehiclePropertyType_Name(id)}, family);
     }
     print("{} properties", all.size());
@@ -600,7 +614,8 @@ int main(int argc, char** argv) try
     parser.SetDescription(
         "silkit-client - CANoe-side RPC client for the sil-kit-android-bridge.\n"
         "Sends PROPERTY=value assignments (Set + read-back) and bare PROPERTY reads,\n"
-        "either from the command line or, if none are given, line by line from stdin.");
+        "either from the command line or, if none are given, line by line from stdin.\n"
+        "Exits with 1 if any line fails to parse or any call fails.");
     parser.Add<CliParser::Flag>("help", "h", "[--help]", "-h, --help: Get this help.");
     parser.Add<CliParser::Flag>("list-properties", "L", "[--list-properties]",
                                 "-L, --list-properties: List all known VHAL property names and exit.");
@@ -680,12 +695,14 @@ int main(int argc, char** argv) try
               VhalSimpleApi::Method::kGetApiVersion);
     }
 
+    bool allSucceeded = true;
     const auto assignments = parser.Get<CliParser::PositionalList>("assignments").Values();
     if (!assignments.empty())
     {
         for (const auto& assignment : assignments)
         {
-            ProcessLine(client, assignment);
+            if (!ProcessLine(client, assignment))
+                allSucceeded = false;
         }
     }
     else
@@ -694,11 +711,12 @@ int main(int argc, char** argv) try
         std::string line;
         while (std::getline(std::cin, line))
         {
-            ProcessLine(client, line);
+            if (!ProcessLine(client, line))
+                allSucceeded = false;
         }
     }
 
-    return 0;
+    return allSucceeded ? 0 : 1;
 }
 catch (const std::exception& e)
 {

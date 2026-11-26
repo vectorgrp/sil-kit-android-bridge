@@ -153,8 +153,23 @@ cmake --build --preset relwithdebinfo --target package
 
 | Platform | Output in `_build/<OS>/relwithdebinfo/` |
 |----------|------------------------------------------|
-| Linux | `sil-kit-android-bridge-<version>-Linux-x86_64.zip` (`bin/sil-kit-android-bridge`) and `.deb` (`/usr/bin/sil-kit-android-bridge`, install with `sudo dpkg -i`) |
-| Windows | `sil-kit-android-bridge-<version>-Windows-x86_64.zip` with `bin/sil-kit-android-bridge.exe`, `bin/silkit-client.exe` and `bin/SilKit.dll` |
+| Linux | `sil-kit-android-bridge-<version>-Linux-x86_64.zip` and `.deb` (`/usr/bin/sil-kit-android-bridge`, install with `sudo dpkg -i`) |
+| Windows | `sil-kit-android-bridge-<version>-Windows-x86_64.zip`, which also has `bin/SilKit.dll` |
+
+Both zips have the same layout:
+
+```
+bin/                     sil-kit-android-bridge, silkit-client
+docs/                    the documentation, and licenses/ with the third-party license texts
+README.md
+LICENSE.md
+THIRD_PARTY_NOTICES.md
+```
+
+The `.deb` has the same documentation tree under
+`/usr/share/doc/sil-kit-android-bridge/`.
+[cmake/ZipLayout.cmake](../cmake/ZipLayout.cmake) moves it to the top of the
+zip.
 
 gRPC, Protobuf, abseil, OpenSSL, re2, c-ares, zlib and the vendored spdlog are
 linked statically on both platforms. The only other runtime dependencies are:
@@ -174,7 +189,7 @@ The Linux artifact is built on Ubuntu 24.04 and needs glibc 2.39 or newer. It
 does not run on 22.04.
 
 Because the dependencies are inside the executables, their license texts ship
-with them, under `share/doc/sil-kit-android-bridge/licenses/`: one directory per
+with them, under `docs/licenses/`: one directory per
 component, plus `NOTICES-conan.md` with versions and SPDX identifiers.
 [cmake/conan/licenses_deployer.py](../cmake/conan/licenses_deployer.py) collects
 the Conan ones and fails the configure if one has no license text.

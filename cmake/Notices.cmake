@@ -13,23 +13,32 @@
 # SIL Kit is always separate: SilKit.dll ships inside the Windows archive,
 # libsilkit comes from a .deb that carries its own copyright file.
 #
-# Layout under <docdir>/licenses/:
-#   aosp-vhal/NOTICE          vendored AOSP VHAL (Apache-2.0)
-#   spdlog/LICENSE            vendored spdlog (MIT)
-#   fmt/fmt.license.rst       fmt, bundled by spdlog (MIT)
-#   silkit/...                SIL Kit and its own third-party notices (Windows)
-#   <name>-<version>/...      one per Conan dependency
-#   NOTICES-conan.md          index of the above, written by the deployer
+# Everything goes into one tree under <docdir>. The .deb ships it there; the zip
+# moves it to the top of the archive (cmake/ZipLayout.cmake):
+#   README.md, LICENSE.md, THIRD_PARTY_NOTICES.md
+#   docs/*.md                 the user documentation, so the README's links work
+#   docs/licenses/
+#     aosp-vhal/NOTICE        vendored AOSP VHAL (Apache-2.0)
+#     spdlog/LICENSE          vendored spdlog (MIT)
+#     fmt/fmt.license.rst     fmt, bundled by spdlog (MIT)
+#     silkit/...              SIL Kit and its own third-party notices (Windows)
+#     <name>-<version>/...    one per Conan dependency
+#     NOTICES-conan.md        index of the above, written by the deployer
 
 include(GNUInstallDirs)
 
-set(SKAB_NOTICES_DESTINATION "${CMAKE_INSTALL_DOCDIR}/licenses")
+set(SKAB_DOC_ROOT "${CMAKE_INSTALL_DOCDIR}")
+set(SKAB_NOTICES_DESTINATION "${SKAB_DOC_ROOT}/docs/licenses")
 
 install(FILES
     "${CMAKE_SOURCE_DIR}/README.md"
     "${CMAKE_SOURCE_DIR}/LICENSE.md"
     "${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
-    DESTINATION "${CMAKE_INSTALL_DOCDIR}"
+    DESTINATION "${SKAB_DOC_ROOT}"
+)
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/docs/"
+    DESTINATION "${SKAB_DOC_ROOT}/docs"
+    FILES_MATCHING PATTERN "*.md"
 )
 
 set(_skab_vendored_root "${CMAKE_SOURCE_DIR}/source/third_party")
